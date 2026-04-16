@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,11 @@ interface FormData {
   profile_md: string;
   memory_md: string;
   language: string;
+  type: string;
+  tools: string;
+  skills: string;
+  mcp: string;
+  max_iterations: number;
   enabled: boolean;
 }
 
@@ -46,12 +51,22 @@ const defaultForm: FormData = {
   profile_md: "",
   memory_md: "",
   language: "zh-CN",
+  type: "simple",
+  tools: "",
+  skills: "",
+  mcp: "",
+  max_iterations: 100,
   enabled: true,
 };
 
 const languages = [
   { value: "zh-CN", label: "简体中文" },
   { value: "en-US", label: "English" },
+];
+
+const agentTypes = [
+  { value: "simple", label: "简单智能体" },
+  { value: "project", label: "项目级智能体" },
 ];
 
 export default function Agents() {
@@ -96,6 +111,11 @@ export default function Agents() {
       profile_md: agent.profile_md || "",
       memory_md: agent.memory_md || "",
       language: agent.language || "zh-CN",
+      type: agent.type || "simple",
+      tools: agent.tools || "",
+      skills: agent.skills || "",
+      mcp: agent.mcp || "",
+      max_iterations: agent.max_iterations || 10,
       enabled: agent.enabled,
     });
     setDialogOpen(true);
@@ -120,6 +140,11 @@ export default function Agents() {
           formData.profile_md,
           formData.memory_md,
           formData.language,
+          formData.type,
+          formData.tools,
+          formData.skills,
+          formData.mcp,
+          formData.max_iterations,
           formData.enabled
         );
       } else {
@@ -132,6 +157,11 @@ export default function Agents() {
           formData.profile_md,
           formData.memory_md,
           formData.language,
+          formData.type,
+          formData.tools,
+          formData.skills,
+          formData.mcp,
+          formData.max_iterations,
           formData.enabled
         );
       }
@@ -162,6 +192,12 @@ export default function Agents() {
     return languages.find((l) => l.value === lang)?.label || lang;
   };
 
+  const getTypeLabel = (type: string) => {
+    return agentTypes.find((t) => t.value === type)?.label || type;
+  };
+
+  const isProjectAgent = formData.type === "project";
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -182,7 +218,7 @@ export default function Agents() {
               <TableRow>
                 <TableHead className="w-12">Icon</TableHead>
                 <TableHead>Name</TableHead>
-                <TableHead>Description</TableHead>
+                <TableHead>Type</TableHead>
                 <TableHead>Language</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -206,8 +242,8 @@ export default function Agents() {
                   <TableRow key={agent.id}>
                     <TableCell className="text-xl">{agent.icon || "🤖"}</TableCell>
                     <TableCell className="font-medium">{agent.name}</TableCell>
-                    <TableCell className="text-muted-foreground max-w-xs truncate">
-                      {agent.description || "-"}
+                    <TableCell>
+                      <Badge variant="outline">{getTypeLabel(agent.type)}</Badge>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{getLanguageLabel(agent.language)}</Badge>
@@ -282,7 +318,7 @@ export default function Agents() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="language">Language</Label>
                 <select
@@ -298,14 +334,82 @@ export default function Agents() {
                   ))}
                 </select>
               </div>
-              <div className="flex items-center justify-end space-x-2">
-                <Label htmlFor="enabled">Enabled</Label>
-                <Switch
-                  id="enabled"
-                  checked={formData.enabled}
-                  onCheckedChange={(checked) => setFormData({ ...formData, enabled: checked })}
+              <div className="space-y-2">
+                <Label htmlFor="type">Type</Label>
+                <select
+                  id="type"
+                  value={formData.type}
+                  onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {agentTypes.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="max_iterations">Max Iterations</Label>
+                <Input
+                  id="max_iterations"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={formData.max_iterations}
+                  onChange={(e) =>
+                    setFormData({ ...formData, max_iterations: parseInt(e.target.value) || 100 })
+                  }
                 />
               </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2">
+              <Label htmlFor="enabled">Enabled</Label>
+              <Switch
+                id="enabled"
+                checked={formData.enabled}
+                onCheckedChange={(checked) => setFormData({ ...formData, enabled: checked })}
+              />
+            </div>
+
+            {/* Tools — only for project agent */}
+            {isProjectAgent && (
+              <div className="space-y-2">
+                <Label htmlFor="tools">Tools</Label>
+                <Input
+                  id="tools"
+                  value={formData.tools}
+                  onChange={(e) => setFormData({ ...formData, tools: e.target.value })}
+                  placeholder="Tool1, Tool2"
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="mcp">MCP</Label>
+              <Input
+                id="mcp"
+                value={formData.mcp}
+                onChange={(e) => setFormData({ ...formData, mcp: e.target.value })}
+                placeholder="MCP1, MCP2"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="skills">Skills</Label>
+              <Input
+                id="skills"
+                value={formData.skills}
+                onChange={(e) => setFormData({ ...formData, skills: e.target.value })}
+                placeholder="Skill1, Skill2"
+              />
+              {!isProjectAgent && (
+                <div className="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950 dark:text-yellow-200">
+                  <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <p>Simple agent does not support tool calling. Script skills cannot be executed. Only suitable for simple chat tasks.</p>
+                </div>
+              )}
             </div>
 
             {/* Core Files Tabs */}

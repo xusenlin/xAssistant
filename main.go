@@ -3,6 +3,9 @@ package main
 import (
 	"embed"
 	"log"
+	"os/exec"
+	"strconv"
+	"strings"
 
 	"xAssistant/internal/config"
 	"xAssistant/internal/crypto"
@@ -53,10 +56,13 @@ func main() {
 		},
 	})
 
+	width, height := getScreenSize()
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:           "xAssistant",
 		BackgroundColour: application.NewRGB(255, 255, 255),
-		URL:             "/",
+		URL:              "/",
+		Width:            width,
+		Height:           height,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,
@@ -65,4 +71,35 @@ func main() {
 	})
 
 	log.Fatal(app.Run())
+}
+
+func getScreenSize() (int, int) {
+	out, err := exec.Command("system_profiler", "SPDisplaysDataType", "-json").Output()
+	if err != nil {
+		return 1280, 800
+	}
+	s := string(out)
+
+	// 提取屏幕分辨率
+	parts := strings.Split(s, "\"Width\":")
+	if len(parts) < 2 {
+		return 1280, 800
+	}
+	wStr := strings.TrimSpace(strings.Split(parts[1], ",")[0])
+	w, err := strconv.Atoi(wStr)
+	if err != nil {
+		return 1280, 800
+	}
+
+	parts = strings.Split(s, "\"Height\":")
+	if len(parts) < 2 {
+		return 1280, 800
+	}
+	hStr := strings.TrimSpace(strings.Split(parts[1], "}")[0])
+	h, err := strconv.Atoi(hStr)
+	if err != nil {
+		return 1280, 800
+	}
+
+	return int(float64(w) * 0.8), int(float64(h) * 0.8)
 }

@@ -12,6 +12,7 @@ export default function App() {
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="chat" element={<PlaceholderPage title="Chat" description="Start a conversation with AI" />} />
+          <Route path="project" element={<PlaceholderPage title="Project" description="Manage your projects" />} />
           <Route path="cron" element={<PlaceholderPage title="Cron" description="Schedule and manage cron jobs" />} />
           <Route path="agent" element={<Agents />} />
           <Route path="skills" element={<PlaceholderPage title="Skills" description="Configure AI agent skills" />} />

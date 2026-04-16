@@ -21,17 +21,22 @@ func NewAgentService(repo AgentRepository) *AgentService {
 	return &AgentService{repo: repo}
 }
 
-func (s *AgentService) Create(name, icon, description, agentsMD, soulMD, profileMD, memoryMD, language string, enabled bool) (*models.Agent, error) {
+func (s *AgentService) Create(name, icon, description, agentsMD, soulMD, profileMD, memoryMD, language, agentType, tools, skills, mcp string, maxIterations int, enabled bool) (*models.Agent, error) {
 	a := &models.Agent{
-		Name:        name,
-		Icon:        icon,
-		Description: description,
-		AgentsMD:    agentsMD,
-		SoulMD:      soulMD,
-		ProfileMD:   profileMD,
-		MemoryMD:    memoryMD,
-		Language:    language,
-		Enabled:     enabled,
+		Name:         name,
+		Icon:         icon,
+		Description:  description,
+		AgentsMD:     agentsMD,
+		SoulMD:       soulMD,
+		ProfileMD:    profileMD,
+		MemoryMD:     memoryMD,
+		Language:     language,
+		Type:         agentType,
+		Tools:        tools,
+		Skills:       skills,
+		Mcp:          mcp,
+		MaxIterations: maxIterations,
+		Enabled:      enabled,
 	}
 	if err := s.repo.Create(a); err != nil {
 		return nil, err
@@ -47,7 +52,7 @@ func (s *AgentService) GetAll() ([]*models.Agent, error) {
 	return s.repo.GetAll()
 }
 
-func (s *AgentService) Update(id, name, icon, description, agentsMD, soulMD, profileMD, memoryMD, language string, enabled bool) error {
+func (s *AgentService) Update(id, name, icon, description, agentsMD, soulMD, profileMD, memoryMD, language, agentType, tools, skills, mcp string, maxIterations int, enabled bool) error {
 	a, err := s.repo.GetByID(id)
 	if err != nil {
 		return err
@@ -60,6 +65,11 @@ func (s *AgentService) Update(id, name, icon, description, agentsMD, soulMD, pro
 	a.ProfileMD = profileMD
 	a.MemoryMD = memoryMD
 	a.Language = language
+	a.Type = agentType
+	a.Tools = tools
+	a.Skills = skills
+	a.Mcp = mcp
+	a.MaxIterations = maxIterations
 	a.Enabled = enabled
 	return s.repo.Update(a)
 }
