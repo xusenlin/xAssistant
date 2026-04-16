@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.0.1"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.0.1",
+			"CompanyName": "My Company",
+			"FileDescription": "AI Assistant",
+			"LegalCopyright": "(c) 2025",
+			"ProductName": "Assistant",
+			"Comments": "AI Assistant"
+		}
+	}
+}

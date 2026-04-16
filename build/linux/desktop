@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Assistant
+Comment=AI Assistant
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/goAgent %u
+Terminal=false
+Type=Application
+Icon=goAgent
+Categories=Utility;
+StartupWMClass=goAgent
+
+ 
