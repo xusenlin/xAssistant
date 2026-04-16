@@ -25,7 +25,7 @@ export default function Header() {
 
         {/* Center: App title */}
         <div className="text-base font-semibold text-foreground">
-          Assistant
+          X-Assistant
         </div>
 
         {/* Right: Actions */}

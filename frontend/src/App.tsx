@@ -18,6 +18,7 @@ export default function App() {
           <Route path="tools" element={<PlaceholderPage title="Tools" description="Manage available tools" />} />
           <Route path="mcp" element={<PlaceholderPage title="MCP" description="Model Context Protocol servers" />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="token" element={<PlaceholderPage title="Token" description="Token usage statistics" />} />
           <Route path="models" element={<Models />} />
         </Route>
       </Routes>
