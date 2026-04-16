@@ -36,12 +36,14 @@ func main() {
 
 	cryptoSvc, _ := crypto.NewCrypto(cfg.Get().EncryptionKey, cfg.Get().EncryptionSalt)
 	modelService := services.NewModelService(dao.NewModelDAO(db.DB), cryptoSvc)
+	agentService := services.NewAgentService(dao.NewAgentDAO(db.DB))
 
 	app := application.New(application.Options{
 		Name:        "xAssistant",
 		Description: "AI Assistant",
 		Services: []application.Service{
 			application.NewService(modelService),
+			application.NewService(agentService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

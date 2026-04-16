@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import MainLayout from "./layouts/MainLayout";
 import Dashboard from "./pages/Dashboard";
 import Models from "./pages/Models";
+import Agents from "./pages/Agents";
 import Settings from "./pages/Settings";
 
 export default function App() {
@@ -12,12 +13,12 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="chat" element={<PlaceholderPage title="Chat" description="Start a conversation with AI" />} />
           <Route path="cron" element={<PlaceholderPage title="Cron" description="Schedule and manage cron jobs" />} />
-          <Route path="files" element={<PlaceholderPage title="Files" description="Browse and manage files" />} />
+          <Route path="agent" element={<Agents />} />
           <Route path="skills" element={<PlaceholderPage title="Skills" description="Configure AI agent skills" />} />
           <Route path="tools" element={<PlaceholderPage title="Tools" description="Manage available tools" />} />
           <Route path="mcp" element={<PlaceholderPage title="MCP" description="Model Context Protocol servers" />} />
           <Route path="settings" element={<Settings />} />
-          <Route path="settings/models" element={<Models />} />
+          <Route path="models" element={<Models />} />
         </Route>
       </Routes>
     </BrowserRouter>

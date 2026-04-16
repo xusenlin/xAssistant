@@ -32,7 +32,7 @@ func New(dbPath string) (*Database, error) {
 }
 
 func (d *Database) Init() error {
-	return d.DB.AutoMigrate(&models.Model{})
+	return d.DB.AutoMigrate(&models.Model{}, &models.Agent{})
 }
 
 func (d *Database) Close() error {

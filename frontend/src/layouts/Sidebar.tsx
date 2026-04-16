@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { MessageSquare, Clock, FolderOpen, Sparkles, Wrench, Cable, Settings, Scale, LayoutDashboard } from "lucide-react";
+import { MessageSquare, Clock, Bot, Sparkles, Wrench, Cable, Settings, Scale, LayoutDashboard } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSidebar } from "./SidebarContext";
@@ -13,11 +13,12 @@ const navItems = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
   { path: "/chat", label: "Chat", icon: MessageSquare },
   { path: "/cron", label: "Cron", icon: Clock },
-  { path: "/files", label: "Files", icon: FolderOpen },
+  { path: "/agent", label: "Agent", icon: Bot },
+  { path: "/models", label: "Models", icon: Scale },
   { path: "/skills", label: "Skills", icon: Sparkles },
   { path: "/tools", label: "Tools", icon: Wrench },
   { path: "/mcp", label: "MCP", icon: Cable },
-  { path: "/settings/models", label: "Models", icon: Scale },
+
 ];
 
 const settingsItems = [
