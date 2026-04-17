@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, Download, FolderOpen, Folder, ChevronRight, ChevronDown, FileText, Loader2 } from "lucide-react";
+import { Plus, Trash2, Download, FolderOpen, Folder, ChevronRight, ChevronDown, FileText, Loader2, Settings, Scale, Wrench, Package, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -399,33 +399,39 @@ export default function Skills() {
             return (
               <Card key={skill.id} className="flex flex-col">
                 <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <CardTitle className="text-base">{skill.name}</CardTitle>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <Zap className="h-4 w-4 text-primary shrink-0" />
+                        <CardTitle className="text-base truncate">{skill.name}</CardTitle>
+                      </div>
                       {skill.description && (
-                        <CardDescription className="mt-1 line-clamp-3">{skill.description}</CardDescription>
+                        <CardDescription className="mt-1 line-clamp-3 text-xs">{skill.description}</CardDescription>
                       )}
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="flex-1 pt-0 space-y-2 pb-2">
-                  {skill.license && (
-                    <Badge variant="outline" className="text-xs">{skill.license}</Badge>
-                  )}
+
                   {skill.compatibility && (
-                    <div className="text-xs text-muted-foreground">
-                      <span className="font-medium">Compatibility:</span> {skill.compatibility}
+                    <div className="text-xs text-muted-foreground truncate flex items-center gap-1" title={skill.compatibility}>
+                      <Settings className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                      <span className="text-muted-foreground/60">·</span> {skill.compatibility}
                     </div>
                   )}
 
-                  <div className="flex flex-wrap gap-1">
+                  <div className="pt-1 pb-1 flex gap-1 overflow-x-auto Badge-Group [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                    {skill.license && (
+                        <Badge variant="outline" className="text-xs shrink-0 flex items-center gap-0.5"><Scale className="h-3 w-3 shrink-0 text-muted-foreground/60" />{skill.license}</Badge>
+                    )}
                     {Object.entries(meta).map(([k, v]) => (
-                        <Badge key={k} variant="secondary" className="text-xs">{String(v)}</Badge>
+                        <Badge key={k} variant="outline" className="text-xs shrink-0 flex items-center gap-0.5"><Package className="h-3 w-3 shrink-0 text-muted-foreground/60" />{String(k)}:{String(v)}</Badge>
                     ))}
                   </div>
                   {tools.length > 0 && (
-                    <div className="text-xs text-muted-foreground">
-                      <span className="font-medium">Tools:</span> {tools.join(", ")}
+                    <div className="text-xs text-muted-foreground truncate flex items-center gap-1" title={tools.join(", ")}>
+                      <Wrench className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                      <span className="text-muted-foreground/60">·</span> {tools.join(", ")}
                     </div>
                   )}
 
