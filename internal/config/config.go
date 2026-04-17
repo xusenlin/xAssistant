@@ -102,3 +102,7 @@ func (m *Manager) Get() *Config {
 func (m *Manager) IsConfigured() bool {
 	return m.cfg.EncryptionKey != "" && m.cfg.EncryptionSalt != ""
 }
+
+func (m *Manager) GetDBPath() string {
+	return m.DBPath
+}
