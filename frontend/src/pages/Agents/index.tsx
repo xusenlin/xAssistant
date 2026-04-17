@@ -1,10 +1,7 @@
 import { useState, useEffect } from "react";
-import { Plus, Pencil, Trash2, AlertCircle } from "lucide-react";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -14,14 +11,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import AgentFormDialog from "@/components/Agents/AgentFormDialog";
+import AgentDeleteDialog from "@/components/Agents/AgentDeleteDialog";
 import { Agent } from "../../../bindings/xAssistant/internal/models/index";
 import { AgentService } from "../../../bindings/xAssistant/internal/services/index";
 
@@ -126,6 +117,10 @@ export default function Agents() {
     setDeleteDialogOpen(true);
   };
 
+  const handleFormChange = (data: Partial<FormData>) => {
+    setFormData((prev) => ({ ...prev, ...data }));
+  };
+
   const handleSubmit = async () => {
     try {
       setIsSubmitting(true);
@@ -196,8 +191,6 @@ export default function Agents() {
     return agentTypes.find((t) => t.value === type)?.label || type;
   };
 
-  const isProjectAgent = formData.type === "project";
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -234,7 +227,7 @@ export default function Agents() {
               ) : agents.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    No agents yet. Click "Add Agent" to create one.
+                    No agents yet. Click &quot;Add Agent&quot; to create one.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -255,18 +248,10 @@ export default function Agents() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenEdit(agent)}
-                        >
+                        <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(agent)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenDelete(agent)}
-                        >
+                        <Button variant="ghost" size="icon" onClick={() => handleOpenDelete(agent)}>
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
@@ -279,217 +264,23 @@ export default function Agents() {
         </CardContent>
       </Card>
 
-      {/* Create/Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-          <DialogHeader>
-            <DialogTitle>{selectedAgent ? "Edit Agent" : "Add Agent"}</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            {/* Basic Info */}
-            <div className="grid grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="icon">Icon</Label>
-                <Input
-                  id="icon"
-                  value={formData.icon}
-                  onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
-                  placeholder="🤖"
-                />
-              </div>
-              <div className="col-span-3 space-y-2">
-                <Label htmlFor="name">Name</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="My Agent"
-                />
-              </div>
-            </div>
+      <AgentFormDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        agent={selectedAgent}
+        formData={formData}
+        isSubmitting={isSubmitting}
+        onFormChange={handleFormChange}
+        onSubmit={handleSubmit}
+      />
 
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Input
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Optional description"
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="language">Language</Label>
-                <select
-                  id="language"
-                  value={formData.language}
-                  onChange={(e) => setFormData({ ...formData, language: e.target.value })}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {languages.map((lang) => (
-                    <option key={lang.value} value={lang.value}>
-                      {lang.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="type">Type</Label>
-                <select
-                  id="type"
-                  value={formData.type}
-                  onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {agentTypes.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="max_iterations">Max Iterations</Label>
-                <Input
-                  id="max_iterations"
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={formData.max_iterations}
-                  onChange={(e) =>
-                    setFormData({ ...formData, max_iterations: parseInt(e.target.value) || 100 })
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end space-x-2">
-              <Label htmlFor="enabled">Enabled</Label>
-              <Switch
-                id="enabled"
-                checked={formData.enabled}
-                onCheckedChange={(checked) => setFormData({ ...formData, enabled: checked })}
-              />
-            </div>
-
-            {/* Tools — only for project agent */}
-            {isProjectAgent && (
-              <div className="space-y-2">
-                <Label htmlFor="tools">Tools</Label>
-                <Input
-                  id="tools"
-                  value={formData.tools}
-                  onChange={(e) => setFormData({ ...formData, tools: e.target.value })}
-                  placeholder="Tool1, Tool2"
-                />
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="mcp">MCP</Label>
-              <Input
-                id="mcp"
-                value={formData.mcp}
-                onChange={(e) => setFormData({ ...formData, mcp: e.target.value })}
-                placeholder="MCP1, MCP2"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="skills">Skills</Label>
-              <Input
-                id="skills"
-                value={formData.skills}
-                onChange={(e) => setFormData({ ...formData, skills: e.target.value })}
-                placeholder="Skill1, Skill2"
-              />
-              {!isProjectAgent && (
-                <div className="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950 dark:text-yellow-200">
-                  <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                  <p>Simple agent does not support tool calling. Script skills cannot be executed. Only suitable for simple chat tasks.</p>
-                </div>
-              )}
-            </div>
-
-            {/* Core Files Tabs */}
-            <div className="space-y-2">
-              <Label>Core Files</Label>
-              <Tabs defaultValue="agents_md" className="w-full">
-                <TabsList className="w-full justify-start">
-                  <TabsTrigger value="agents_md">Agents.md</TabsTrigger>
-                  <TabsTrigger value="soul_md">Soul.md</TabsTrigger>
-                  <TabsTrigger value="profile_md">PROFILE.md</TabsTrigger>
-                  <TabsTrigger value="memory_md">MEMORY.md</TabsTrigger>
-                </TabsList>
-                <TabsContent value="agents_md">
-                  <textarea
-                    value={formData.agents_md}
-                    onChange={(e) => setFormData({ ...formData, agents_md: e.target.value })}
-                    placeholder="Enter Agents.md content..."
-                    className="w-full min-h-[300px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono"
-                  />
-                </TabsContent>
-                <TabsContent value="soul_md">
-                  <textarea
-                    value={formData.soul_md}
-                    onChange={(e) => setFormData({ ...formData, soul_md: e.target.value })}
-                    placeholder="Enter Soul.md content..."
-                    className="w-full min-h-[300px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono"
-                  />
-                </TabsContent>
-                <TabsContent value="profile_md">
-                  <textarea
-                    value={formData.profile_md}
-                    onChange={(e) => setFormData({ ...formData, profile_md: e.target.value })}
-                    placeholder="Enter PROFILE.md content..."
-                    className="w-full min-h-[300px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono"
-                  />
-                </TabsContent>
-                <TabsContent value="memory_md">
-                  <textarea
-                    value={formData.memory_md}
-                    onChange={(e) => setFormData({ ...formData, memory_md: e.target.value })}
-                    placeholder="Enter MEMORY.md content..."
-                    className="w-full min-h-[300px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono"
-                  />
-                </TabsContent>
-              </Tabs>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={isSubmitting || !formData.name}
-            >
-              {isSubmitting ? "Saving..." : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Dialog */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Agent</DialogTitle>
-          </DialogHeader>
-          <p>
-            Are you sure you want to delete "{selectedAgent?.name}"? This action cannot be undone.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={isSubmitting}>
-              {isSubmitting ? "Deleting..." : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AgentDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        agent={selectedAgent}
+        onConfirm={handleDelete}
+        isSubmitting={isSubmitting}
+      />
     </div>
   );
 }

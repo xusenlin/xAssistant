@@ -1,18 +1,10 @@
-import { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, Download, FolderOpen, Folder, ChevronRight, ChevronDown, FileText, Loader2, Settings, Scale, Wrench, Package, Zap } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, FolderOpen, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
-} from "@/components/ui/dialog";
+import SkillCard from "@/components/Skills/SkillCard";
+import SkillImportDialog from "@/components/Skills/SkillImportDialog";
+import SkillDeleteDialog from "@/components/Skills/SkillDeleteDialog";
+import SkillEditDialog from "@/components/Skills/SkillEditDialog";
 import { SkillService } from "../../../bindings/xAssistant/internal/services/index";
 import { toast } from "sonner";
 import { Dialogs } from "@wailsio/runtime";
@@ -48,7 +40,6 @@ export default function Skills() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
 
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -61,44 +52,9 @@ export default function Skills() {
   const [fileSaving, setFileSaving] = useState(false);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   useEffect(() => {
     loadSkills();
   }, []);
-
-  useEffect(() => {
-    if (!importDialogOpen) return;
-
-    const handleDragOver = (e: DragEvent) => {
-      e.preventDefault();
-      setIsDragging(true);
-    };
-
-    const handleDragLeave = () => {
-      setIsDragging(false);
-    };
-
-    const handleDrop = (e: DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
-      const file = e.dataTransfer?.files[0];
-      if (file && file.name.endsWith(".zip")) {
-        setImportFile(file);
-        handleImportPreview(file);
-      }
-    };
-
-    document.addEventListener("dragover", handleDragOver);
-    document.addEventListener("dragleave", handleDragLeave);
-    document.addEventListener("drop", handleDrop);
-
-    return () => {
-      document.removeEventListener("dragover", handleDragOver);
-      document.removeEventListener("dragleave", handleDragLeave);
-      document.removeEventListener("drop", handleDrop);
-    };
-  }, [importDialogOpen]);
 
   const loadSkills = async () => {
     try {
@@ -109,15 +65,6 @@ export default function Skills() {
       console.error("Failed to load skills:", error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && file.name.endsWith(".zip")) {
-      setImportFile(file);
-      setImportDialogOpen(true);
-      handleImportPreview(file);
     }
   };
 
@@ -183,9 +130,7 @@ export default function Skills() {
         Filename: `${skill.name}.zip`,
         Filters: [{ DisplayName: "ZIP Archive", Pattern: "*.zip" }],
       });
-      if (!filePath) {
-        return; // user cancelled
-      }
+      if (!filePath) return;
       await SkillService.SaveSkillZip(skill.id, filePath);
       toast.success(`已导出到: ${filePath}`);
     } catch (error) {
@@ -219,6 +164,7 @@ export default function Skills() {
     setFileContent("");
     setFiles([]);
     setSelectedFile("SKILL.md");
+    setExpandedDirs(new Set());
 
     try {
       const fileList = await SkillService.GetSkillFiles(skill.id);
@@ -261,81 +207,6 @@ export default function Skills() {
     });
   };
 
-  const buildTree = (files: SkillFileInfo[]) => {
-    type Node = { children: Map<string, Node>; files: SkillFileInfo[] };
-    const root: Node = { children: new Map(), files: [] };
-
-    files.forEach((f) => {
-      const parts = f.path.split("/");
-      let current = root;
-      for (let i = 0; i < parts.length - 1; i++) {
-        const dir = parts[i];
-        if (!current.children.has(dir)) {
-          current.children.set(dir, { children: new Map(), files: [] });
-        }
-        current = current.children.get(dir)!;
-      }
-      current.files.push(f);
-    });
-
-    return root;
-  };
-
-  const renderTreeNode = (
-    node: { children: Map<string, ReturnType<typeof buildTree>>; files: SkillFileInfo[] },
-    parentPath: string,
-    depth: number
-  ): React.ReactNode => {
-    const sortedDirs = Array.from(node.children.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-    const sortedFiles = [...node.files]
-      .filter((f) => !f.is_dir)
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    return (
-      <>
-        {sortedDirs.map(([dirName, child]) => {
-          const dirPath = parentPath ? `${parentPath}/${dirName}` : dirName;
-          const isOpen = expandedDirs.has(dirPath);
-          return (
-            <div key={dirName}>
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => toggleDir(dirPath)}
-                onKeyDown={(e) => e.key === "Enter" && toggleDir(dirPath)}
-                className="flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors cursor-pointer"
-                style={{ paddingLeft: `${depth * 16 + 8}px` }}
-              >
-                {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                <Folder className="h-3 w-3 text-yellow-500" />
-                <span className="text-muted-foreground hover:text-foreground">{dirName}</span>
-              </div>
-              {isOpen && renderTreeNode(child, dirPath, depth + 1)}
-            </div>
-          );
-        })}
-        {sortedFiles.map((f) => (
-          <div
-            key={f.path}
-            role="button"
-            tabIndex={0}
-            onClick={() => loadFileContent(f.path)}
-            onKeyDown={(e) => e.key === "Enter" && loadFileContent(f.path)}
-            className={`w-full text-left flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors cursor-pointer ${
-              selectedFile === f.path
-                ? "text-yellow-500 font-medium"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            style={{ paddingLeft: `${depth * 16 + 10}px` }}
-          >
-            <FileText className="h-3 w-3" />
-            <span>{f.name}</span>
-          </div>
-        ))}
-      </>
-    );
-  };
-
   const handleSaveFile = async () => {
     if (!selectedSkill) return;
     setFileSaving(true);
@@ -350,19 +221,6 @@ export default function Skills() {
     } finally {
       setFileSaving(false);
     }
-  };
-
-  const parseMetadata = (meta: string) => {
-    try {
-      return JSON.parse(meta || "{}");
-    } catch {
-      return {};
-    }
-  };
-
-  const parseAllowedTools = (tools: string) => {
-    const trimmed = (tools || "").trim();
-    return trimmed ? trimmed.split(/\s+/) : [];
   };
 
   return (
@@ -385,7 +243,7 @@ export default function Skills() {
       ) : skills.length === 0 ? (
         <div
           className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed py-20 text-muted-foreground transition-colors cursor-pointer"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => setImportDialogOpen(true)}
         >
           <FolderOpen className="h-12 w-12 mb-4" />
           <p className="mb-2">No skills yet</p>
@@ -393,224 +251,53 @@ export default function Skills() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {skills.map((skill) => {
-            const meta = parseMetadata(skill.metadata);
-            const tools = parseAllowedTools(skill.allowed_tools);
-            return (
-              <Card key={skill.id} className="flex flex-col">
-                <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <Zap className="h-4 w-4 text-primary shrink-0" />
-                        <CardTitle className="text-base truncate">{skill.name}</CardTitle>
-                      </div>
-                      {skill.description && (
-                        <CardDescription className="mt-1 line-clamp-3 text-xs">{skill.description}</CardDescription>
-                      )}
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="flex-1 pt-0 space-y-2 pb-2">
-
-                  {skill.compatibility && (
-                    <div className="text-xs text-muted-foreground truncate flex items-center gap-1" title={skill.compatibility}>
-                      <Settings className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-                      <span className="text-muted-foreground/60">·</span> {skill.compatibility}
-                    </div>
-                  )}
-
-                  <div className="pt-1 pb-1 flex gap-1 overflow-x-auto Badge-Group [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                    {skill.license && (
-                        <Badge variant="outline" className="text-xs shrink-0 flex items-center gap-0.5"><Scale className="h-3 w-3 shrink-0 text-muted-foreground/60" />{skill.license}</Badge>
-                    )}
-                    {Object.entries(meta).map(([k, v]) => (
-                        <Badge key={k} variant="outline" className="text-xs shrink-0 flex items-center gap-0.5"><Package className="h-3 w-3 shrink-0 text-muted-foreground/60" />{String(k)}:{String(v)}</Badge>
-                    ))}
-                  </div>
-                  {tools.length > 0 && (
-                    <div className="text-xs text-muted-foreground truncate flex items-center gap-1" title={tools.join(", ")}>
-                      <Wrench className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-                      <span className="text-muted-foreground/60">·</span> {tools.join(", ")}
-                    </div>
-                  )}
-
-                </CardContent>
-                <CardFooter className="pt-0 flex justify-end">
-                  <Button
-                      variant="ghost"
-                      size="icon"
-                      title="Download ZIP"
-                      onClick={() => handleExport(skill)}
-                  >
-                    <Download className="h-4 w-4" />
-                  </Button>
-                  <Button
-                      variant="ghost"
-                      size="icon"
-                      title="Edit"
-                      onClick={() => handleOpenEdit(skill)}
-                  >
-                    <FileText className="h-4 w-4" />
-                  </Button>
-                  <Button
-                      variant="ghost"
-                      size="icon"
-                      title="Delete"
-                      onClick={() => handleOpenDelete(skill)}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </CardFooter>
-              </Card>
-            );
-          })}
+          {skills.map((skill) => (
+            <SkillCard
+              key={skill.id}
+              skill={skill}
+              onExport={handleExport}
+              onEdit={handleOpenEdit}
+              onDelete={handleOpenDelete}
+            />
+          ))}
         </div>
       )}
 
-      {/* Import Dialog */}
-      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Import Skill</DialogTitle>
-            <DialogDescription>Upload a ZIP package containing a SKILL.md</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div
-              className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 cursor-pointer transition-colors ${
-                isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/25"
-              }`}
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setIsDragging(true);
-              }}
-              onDragLeave={(e) => {
-                e.stopPropagation();
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setIsDragging(false);
-                const file = e.dataTransfer.files[0];
-                if (file && file.name.endsWith(".zip")) {
-                  setImportFile(file);
-                  handleImportPreview(file);
-                }
-              }}
-            >
-              <Input
-                ref={fileInputRef}
-                type="file"
-                accept=".zip"
-                className="hidden"
-                onChange={handleFileSelect}
-              />
-              {importLoading ? (
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              ) : importFile ? (
-                <div className="text-center">
-                  <FileText className="h-8 w-8 mx-auto mb-2 text-primary" />
-                  <p className="font-medium">{importFile.name}</p>
-                  <p className="text-sm text-muted-foreground">{(importFile.size / 1024).toFixed(1)} KB</p>
-                </div>
-              ) : (
-                <div className="text-center text-muted-foreground">
-                  <p>Drag & drop a ZIP file here, or click to select</p>
-                  <p className="text-xs mt-1">.zip package containing SKILL.md</p>
-                </div>
-              )}
-            </div>
+      <SkillImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        onPreview={handleImportPreview}
+        onConfirm={handleImportConfirm}
+        onCancel={handleImportCancel}
+        importFile={importFile}
+        importResult={importResult}
+        importLoading={importLoading}
+        isSubmitting={isSubmitting}
+      />
 
-            {importResult?.ok && (
-              <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
-                <h4 className="font-medium">Ready to import:</h4>
-                <div className="text-sm space-y-1">
-                  <p><span className="font-medium">Name:</span> {importResult.skill.name}</p>
-                  {importResult.skill.description && <p><span className="font-medium">Description:</span> {importResult.skill.description}</p>}
-                  {importResult.skill.license && <p><span className="font-medium">License:</span> {importResult.skill.license}</p>}
-                  {importResult.skill.compatibility && <p><span className="font-medium">Compatibility:</span> {importResult.skill.compatibility}</p>}
-                </div>
-              </div>
-            )}
+      <SkillDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        skill={selectedSkill}
+        onConfirm={handleDelete}
+        isSubmitting={isSubmitting}
+      />
 
-            {importResult?.ok === false && (
-              <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive whitespace-pre-wrap">
-                {importResult.error}
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={handleImportCancel} disabled={importLoading}>
-              Cancel
-            </Button>
-            <Button onClick={handleImportConfirm} disabled={importResult?.ok !== true || isSubmitting}>
-              {isSubmitting ? "Importing..." : "Import"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Dialog */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Skill</DialogTitle>
-          </DialogHeader>
-          <p>Are you sure you want to delete "{selectedSkill?.name}"? This will remove the skill from the database and delete all extracted files. This action cannot be undone.</p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={isSubmitting}>
-              {isSubmitting ? "Deleting..." : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Dialog */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-          <DialogHeader>
-            <DialogTitle>Edit Skill: {selectedSkill?.name}</DialogTitle>
-          </DialogHeader>
-          <div className="flex flex-col flex-1 min-h-0 gap-4 py-2">
-            <div className="flex gap-4">
-              <div className="w-[30%] min-w-0 flex flex-col">
-                <Label className="text-xs text-muted-foreground mb-1">Files</Label>
-                <div className="flex flex-col gap-0.5 flex-1">
-                  {renderTreeNode(buildTree(files), "", 0)}
-                </div>
-                {selectedSkill && (
-                  <div className="text-xs text-muted-foreground space-y-0.5 mt-3">
-                    <div>License: {selectedSkill.license || "—"}</div>
-                    <div>Compatibility: {selectedSkill.compatibility || "—"}</div>
-                  </div>
-                )}
-              </div>
-              <div className="flex-1 min-h-0">
-                <textarea
-                  className="w-full h-full min-h-[500px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono resize-none focus-visible:outline-none"
-                  value={fileContent}
-                  onChange={(e) => setFileContent(e.target.value)}
-                  disabled={fileLoading}
-                  spellCheck={false}
-                />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
-              Close
-            </Button>
-            <Button onClick={handleSaveFile} disabled={fileLoading || fileSaving}>
-              {fileSaving ? "Saving..." : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SkillEditDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        skill={selectedSkill}
+        files={files}
+        selectedFile={selectedFile}
+        fileContent={fileContent}
+        fileLoading={fileLoading}
+        fileSaving={fileSaving}
+        expandedDirs={expandedDirs}
+        onToggleDir={toggleDir}
+        onSelectFile={loadFileContent}
+        onContentChange={setFileContent}
+        onSave={handleSaveFile}
+      />
     </div>
   );
 }
