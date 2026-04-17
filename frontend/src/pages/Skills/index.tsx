@@ -14,6 +14,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { SkillService } from "../../../bindings/xAssistant/internal/services/index";
+import { toast } from "sonner";
+import { Dialogs } from "@wailsio/runtime";
 
 interface Skill {
   id: string;
@@ -175,21 +177,19 @@ export default function Skills() {
 
   const handleExport = async (skill: Skill) => {
     try {
-      const b64 = await SkillService.GetExportContent(skill.id);
-      if (!b64 || b64.length === 0) return;
-      const binary = atob(b64);
-      const blob = new Blob([binary], { type: "application/zip" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${skill.name}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const filePath = await Dialogs.SaveFile({
+        Title: "导出 Skill",
+        Filename: `${skill.name}.zip`,
+        Filters: [{ DisplayName: "ZIP Archive", Pattern: "*.zip" }],
+      });
+      if (!filePath) {
+        return; // user cancelled
+      }
+      await SkillService.SaveSkillZip(skill.id, filePath);
+      toast.success(`已导出到: ${filePath}`);
     } catch (error) {
       console.error("Export failed:", error);
-      alert("导出失败: " + error);
+      toast.error("导出失败: " + error);
     }
   };
 
@@ -218,15 +218,18 @@ export default function Skills() {
     setFileContent("");
     setFiles([]);
     setSelectedFile("SKILL.md");
-    setEditDialogOpen(true);
 
     try {
       const fileList = await SkillService.GetSkillFiles(skill.id);
-      setFiles(fileList.filter((f) => !f.is_dir));
-      if (fileList.some((f) => f.name === "SKILL.md")) {
-        await loadFileContent("SKILL.md");
+      const filteredFiles = fileList.filter((f) => !f.is_dir);
+      setFiles(filteredFiles);
+      if (filteredFiles.some((f) => f.name === "SKILL.md")) {
+        const content = await SkillService.GetFileContent(skill.id, "SKILL.md");
+        setFileContent(content);
       }
+      setEditDialogOpen(true);
     } catch (error) {
+      toast.error("加载文件列表失败: " + error);
       console.error("Failed to load files:", error);
     }
   };
@@ -252,7 +255,7 @@ export default function Skills() {
       await SkillService.SaveFileContent(selectedSkill.id, selectedFile, fileContent);
     } catch (error) {
       console.error("Save failed:", error);
-      alert("保存失败: " + error);
+      toast.error("保存失败: " + error);
     } finally {
       setFileSaving(false);
     }

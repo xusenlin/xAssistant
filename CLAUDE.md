@@ -86,6 +86,9 @@ main/     — wires everything together: services.NewXxxService(dao.NewXxxDAO(db
 - ❌ DAO returning an interface type (`func NewXxxDAO() services.XxxRepository`) — requires dao to import services → **import cycle**
 - ❌ Interfaces in `models/interfaces.go` — models package should only hold data structs
 - ❌ DAO declaring it implements an interface
+- ❌ 程序里面不要使用中文提示或者注释 
+
+
 
 **Correct pattern:**
 ```go

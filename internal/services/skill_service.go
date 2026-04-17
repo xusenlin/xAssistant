@@ -164,6 +164,17 @@ func (s *SkillService) GetExportContent(id string) (string, error) {
 	return base64.StdEncoding.EncodeToString(skill.Content), nil
 }
 
+func (s *SkillService) SaveSkillZip(id, filePath string) error {
+	skill, err := s.repo.GetByID(id)
+	if err != nil {
+		return err
+	}
+	if len(skill.Content) == 0 {
+		return fmt.Errorf("skill has no content")
+	}
+	return os.WriteFile(filePath, skill.Content, 0644)
+}
+
 func (s *SkillService) EnsureExtracted(id string) (string, error) {
 	skill, err := s.repo.GetByID(id)
 	if err != nil {
@@ -359,6 +370,11 @@ func buildMetadata(fm *SkillFrontmatter) string {
 	return string(data)
 }
 
+func isMetaFile(name string) bool {
+	base := filepath.Base(name)
+	return strings.HasPrefix(name, "__MACOSX/") || strings.HasPrefix(base, "._")
+}
+
 func buildAllowedToolsJSON(tools []string) string {
 	if len(tools) == 0 {
 		return "[]"
@@ -368,12 +384,37 @@ func buildAllowedToolsJSON(tools []string) string {
 }
 
 func extractZip(zr *zip.Reader, destDir string) error {
+	// 用 filepath.Dir(f.Name) 检测顶层目录，直接处理原始 ZIP entry name
+	// 关键：filepath.Dir("nurse-community-copywriter/") = "."，filepath.Dir("nurse-community-copywriter/SKILL.md") = "nurse-community-copywriter"
+	var topDir string
 	for _, f := range zr.File {
-		if f.FileInfo().IsDir() {
+		if isMetaFile(f.Name) {
+			continue
+		}
+		if topDir == "" {
+			topDir = filepath.Dir(f.Name)
+			break
+		}
+	}
+	if topDir == "." {
+		topDir = ""
+	}
+
+	for _, f := range zr.File {
+		if isMetaFile(f.Name) {
 			continue
 		}
 
-		path := filepath.Join(destDir, filepath.FromSlash(f.Name))
+		name := filepath.FromSlash(f.Name)
+		if topDir != "" {
+			name = strings.TrimPrefix(name, topDir+"/")
+		}
+
+		if name == "" || strings.HasSuffix(f.Name, "/") {
+			continue // 空路径或目录 entry，跳过
+		}
+
+		path := filepath.Join(destDir, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return err
 		}
@@ -399,11 +440,14 @@ func extractZip(zr *zip.Reader, destDir string) error {
 
 // extractZipToDir extracts ZIP to dest dir, strips top-level directory prefix
 func extractZipToDir(zr *zip.Reader, destDir string) error {
-	// 找出顶层目录名
+	// 找出顶层目录名，跳过 __MACOSX 元数据文件
 	var topDir string
 	for _, f := range zr.File {
-		if !f.FileInfo().IsDir() && topDir == "" {
-			topDir = filepath.Dir(filepath.FromSlash(f.Name))
+		if isMetaFile(f.Name) {
+			continue
+		}
+		if topDir == "" {
+			topDir = filepath.Dir(f.Name)
 			break
 		}
 	}
@@ -412,13 +456,17 @@ func extractZipToDir(zr *zip.Reader, destDir string) error {
 	}
 
 	for _, f := range zr.File {
-		if f.FileInfo().IsDir() {
+		if isMetaFile(f.Name) {
 			continue
 		}
 
 		name := filepath.FromSlash(f.Name)
 		if topDir != "" {
 			name = strings.TrimPrefix(name, topDir+"/")
+		}
+
+		if name == "" || strings.HasSuffix(f.Name, "/") {
+			continue
 		}
 
 		path := filepath.Join(destDir, name)
