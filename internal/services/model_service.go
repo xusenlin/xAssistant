@@ -4,6 +4,11 @@ import (
 	"xAssistant/internal/models"
 )
 
+type Encrypter interface {
+	Encrypt(plaintext string) (string, error)
+	Decrypt(encrypted string) (string, error)
+}
+
 type ModelRepository interface {
 	Create(model *models.Model) error
 	GetByID(id string) (*models.Model, error)
@@ -11,11 +16,6 @@ type ModelRepository interface {
 	Update(model *models.Model) error
 	Delete(id string) error
 	GetEnabled() ([]*models.Model, error)
-}
-
-type Encrypter interface {
-	Encrypt(plaintext string) (string, error)
-	Decrypt(encrypted string) (string, error)
 }
 
 type ModelService struct {

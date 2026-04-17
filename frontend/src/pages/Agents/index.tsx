@@ -65,8 +65,8 @@ const languages = [
 ];
 
 const agentTypes = [
-  { value: "simple", label: "简单智能体" },
-  { value: "project", label: "项目级智能体" },
+  { value: "simple", label: "Simple" },
+  { value: "project", label: "Project" },
 ];
 
 export default function Agents() {

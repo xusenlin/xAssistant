@@ -4,6 +4,8 @@ import Dashboard from "./pages/Dashboard";
 import Models from "./pages/Models";
 import Agents from "./pages/Agents";
 import Settings from "./pages/Settings";
+import Environment from "./pages/Environment";
+import Token from "./pages/Token";
 
 export default function App() {
   return (
@@ -19,7 +21,8 @@ export default function App() {
           <Route path="tools" element={<PlaceholderPage title="Tools" description="Manage available tools" />} />
           <Route path="mcp" element={<PlaceholderPage title="MCP" description="Model Context Protocol servers" />} />
           <Route path="settings" element={<Settings />} />
-          <Route path="token" element={<PlaceholderPage title="Token" description="Token usage statistics" />} />
+          <Route path="environment" element={<Environment />} />
+          <Route path="token" element={<Token />} />
           <Route path="models" element={<Models />} />
         </Route>
       </Routes>

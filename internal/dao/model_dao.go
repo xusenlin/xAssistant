@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"xAssistant/internal/models"
-	"xAssistant/internal/services"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -14,7 +13,7 @@ type ModelDAO struct {
 	db *gorm.DB
 }
 
-func NewModelDAO(db *gorm.DB) services.ModelRepository {
+func NewModelDAO(db *gorm.DB) *ModelDAO {
 	return &ModelDAO{db: db}
 }
 

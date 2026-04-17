@@ -94,5 +94,3 @@ type Encrypter interface {
 	Encrypt(plaintext string) (string, error)
 	Decrypt(encrypted string) (string, error)
 }
-
-var _ Encrypter = (*Crypto)(nil)
