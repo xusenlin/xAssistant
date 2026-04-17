@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, Download, FolderOpen, FileText, Loader2 } from "lucide-react";
+import { Plus, Trash2, Download, FolderOpen, Folder, ChevronRight, ChevronDown, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import {Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -59,6 +59,7 @@ export default function Skills() {
   const [fileContent, setFileContent] = useState<string>("");
   const [fileLoading, setFileLoading] = useState(false);
   const [fileSaving, setFileSaving] = useState(false);
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -248,11 +249,101 @@ export default function Skills() {
     }
   };
 
+  const toggleDir = (path: string) => {
+    setExpandedDirs((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  };
+
+  const buildTree = (files: SkillFileInfo[]) => {
+    type Node = { children: Map<string, Node>; files: SkillFileInfo[] };
+    const root: Node = { children: new Map(), files: [] };
+
+    files.forEach((f) => {
+      const parts = f.path.split("/");
+      let current = root;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const dir = parts[i];
+        if (!current.children.has(dir)) {
+          current.children.set(dir, { children: new Map(), files: [] });
+        }
+        current = current.children.get(dir)!;
+      }
+      current.files.push(f);
+    });
+
+    return root;
+  };
+
+  const renderTreeNode = (
+    node: { children: Map<string, ReturnType<typeof buildTree>>; files: SkillFileInfo[] },
+    parentPath: string,
+    depth: number
+  ): React.ReactNode => {
+    const sortedDirs = Array.from(node.children.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    const sortedFiles = [...node.files]
+      .filter((f) => !f.is_dir)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return (
+      <>
+        {sortedDirs.map(([dirName, child]) => {
+          const dirPath = parentPath ? `${parentPath}/${dirName}` : dirName;
+          const isOpen = expandedDirs.has(dirPath);
+          return (
+            <div key={dirName}>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => toggleDir(dirPath)}
+                onKeyDown={(e) => e.key === "Enter" && toggleDir(dirPath)}
+                className="flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors cursor-pointer"
+                style={{ paddingLeft: `${depth * 16 + 8}px` }}
+              >
+                {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                <Folder className="h-3 w-3 text-yellow-500" />
+                <span className="text-muted-foreground hover:text-foreground">{dirName}</span>
+              </div>
+              {isOpen && renderTreeNode(child, dirPath, depth + 1)}
+            </div>
+          );
+        })}
+        {sortedFiles.map((f) => (
+          <div
+            key={f.path}
+            role="button"
+            tabIndex={0}
+            onClick={() => loadFileContent(f.path)}
+            onKeyDown={(e) => e.key === "Enter" && loadFileContent(f.path)}
+            className={`w-full text-left flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors cursor-pointer ${
+              selectedFile === f.path
+                ? "text-yellow-500 font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            style={{ paddingLeft: `${depth * 16 + 10}px` }}
+          >
+            <FileText className="h-3 w-3" />
+            <span>{f.name}</span>
+          </div>
+        ))}
+      </>
+    );
+  };
+
   const handleSaveFile = async () => {
     if (!selectedSkill) return;
     setFileSaving(true);
     try {
       await SkillService.SaveFileContent(selectedSkill.id, selectedFile, fileContent);
+      toast.success("保存成功");
+      setEditDialogOpen(false);
+      await loadSkills();
     } catch (error) {
       console.error("Save failed:", error);
       toast.error("保存失败: " + error);
@@ -270,11 +361,8 @@ export default function Skills() {
   };
 
   const parseAllowedTools = (tools: string) => {
-    try {
-      return JSON.parse(tools || "[]") as string[];
-    } catch {
-      return [];
-    }
+    const trimmed = (tools || "").trim();
+    return trimmed ? trimmed.split(/\s+/) : [];
   };
 
   return (
@@ -310,67 +398,60 @@ export default function Skills() {
             const tools = parseAllowedTools(skill.allowed_tools);
             return (
               <Card key={skill.id} className="flex flex-col">
-                <CardHeader>
+                <CardHeader className="pb-2">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <CardTitle className="text-lg">{skill.name}</CardTitle>
+                      <CardTitle className="text-base">{skill.name}</CardTitle>
                       {skill.description && (
-                        <CardDescription className="mt-1 line-clamp-2">{skill.description}</CardDescription>
+                        <CardDescription className="mt-1 line-clamp-3">{skill.description}</CardDescription>
                       )}
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="flex-1 space-y-2">
+                <CardContent className="flex-1 pt-0 space-y-2 pb-2">
                   {skill.license && (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Badge variant="outline" className="text-xs">{skill.license}</Badge>
-                    </div>
+                    <Badge variant="outline" className="text-xs">{skill.license}</Badge>
                   )}
                   {skill.compatibility && (
                     <div className="text-xs text-muted-foreground">
                       <span className="font-medium">Compatibility:</span> {skill.compatibility}
                     </div>
                   )}
-                  {meta.category && (
-                    <div className="text-xs text-muted-foreground">
-                      <span className="font-medium">Category:</span> {meta.category}
-                    </div>
-                  )}
-                  {meta.tags && Array.isArray(meta.tags) && meta.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {(meta.tags as string[]).map((tag) => (
-                        <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
-                      ))}
-                    </div>
-                  )}
+
+                  <div className="flex flex-wrap gap-1">
+                    {Object.entries(meta).map(([k, v]) => (
+                        <Badge key={k} variant="secondary" className="text-xs">{String(v)}</Badge>
+                    ))}
+                  </div>
                   {tools.length > 0 && (
                     <div className="text-xs text-muted-foreground">
                       <span className="font-medium">Tools:</span> {tools.join(", ")}
                     </div>
                   )}
+
                 </CardContent>
-                <CardFooter className="flex justify-end gap-2">
+                <CardFooter className="pt-0 flex justify-end">
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    title="Download ZIP"
-                    onClick={() => handleExport(skill)}
+                      variant="ghost"
+                      size="icon"
+                      title="Download ZIP"
+                      onClick={() => handleExport(skill)}
                   >
                     <Download className="h-4 w-4" />
                   </Button>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    title="Edit"
-                    onClick={() => handleOpenEdit(skill)}
+                      variant="ghost"
+                      size="icon"
+                      title="Edit"
+                      onClick={() => handleOpenEdit(skill)}
                   >
                     <FileText className="h-4 w-4" />
                   </Button>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    title="Delete"
-                    onClick={() => handleOpenDelete(skill)}
+                      variant="ghost"
+                      size="icon"
+                      title="Delete"
+                      onClick={() => handleOpenDelete(skill)}
                   >
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
@@ -490,43 +571,28 @@ export default function Skills() {
             <DialogTitle>Edit Skill: {selectedSkill?.name}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col flex-1 min-h-0 gap-4 py-2">
-            <div className="flex gap-4 flex-wrap">
-              <div className="flex-1 min-w-[200px] space-y-1">
-                <Label className="text-xs text-muted-foreground">Files</Label>
-                <div className="flex flex-wrap gap-1">
-                  {files.map((f) => (
-                    <button
-                      key={f.path}
-                      onClick={() => loadFileContent(f.path)}
-                      className={`px-2 py-1 text-xs rounded border transition-colors ${
-                        selectedFile === f.path
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-muted hover:bg-muted/80 border-transparent"
-                      }`}
-                    >
-                      {f.name}
-                    </button>
-                  ))}
+            <div className="flex gap-4">
+              <div className="w-[30%] min-w-0 flex flex-col">
+                <Label className="text-xs text-muted-foreground mb-1">Files</Label>
+                <div className="flex flex-col gap-0.5 flex-1">
+                  {renderTreeNode(buildTree(files), "", 0)}
                 </div>
+                {selectedSkill && (
+                  <div className="text-xs text-muted-foreground space-y-0.5 mt-3">
+                    <div>License: {selectedSkill.license || "—"}</div>
+                    <div>Compatibility: {selectedSkill.compatibility || "—"}</div>
+                  </div>
+                )}
               </div>
-              {selectedSkill && (
-                <div className="space-y-1 text-xs text-muted-foreground">
-                  <div>License: {selectedSkill.license || "—"}</div>
-                  <div>Compatibility: {selectedSkill.compatibility || "—"}</div>
-                </div>
-              )}
-            </div>
-
-            <div className="flex-1 min-h-0">
-              <Label className="text-xs text-muted-foreground mb-1 block">
-                {selectedFile} {fileLoading && <Loader2 className="inline h-3 w-3 animate-spin ml-1" />}
-              </Label>
-              <textarea
-                value={fileContent}
-                onChange={(e) => setFileContent(e.target.value)}
-                className="w-full h-[400px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono resize-none"
-                disabled={fileLoading}
-              />
+              <div className="flex-1 min-h-0">
+                <textarea
+                  className="w-full h-full min-h-[500px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono resize-none focus-visible:outline-none"
+                  value={fileContent}
+                  onChange={(e) => setFileContent(e.target.value)}
+                  disabled={fileLoading}
+                  spellCheck={false}
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>

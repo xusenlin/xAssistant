@@ -36,14 +36,15 @@ func NewSkillService(repo SkillRepository, baseDir string) *SkillService {
 }
 
 type SkillFrontmatter struct {
-	Name          string   `yaml:"name"`
-	Version       string   `yaml:"version"`
-	Description   string   `yaml:"description"`
-	License       string   `yaml:"license"`
-	Compatibility string   `yaml:"compatibility"`
-	Category      string   `yaml:"category"`
-	Tags          []string `yaml:"tags"`
-	AllowedTools  []string `yaml:"allowed_tools"`
+	Name          string                 `yaml:"name"`
+	Version       string                 `yaml:"version"`
+	Description   string                 `yaml:"description"`
+	License       string                 `yaml:"license"`
+	Compatibility string                 `yaml:"compatibility"`
+	Category      string                 `yaml:"category"`
+	Tags          []string               `yaml:"tags"`
+	Metadata      map[string]interface{} `yaml:"metadata"`
+	AllowedTools  string                 `yaml:"allowed-tools"`
 }
 
 type SkillFileInfo struct {
@@ -133,7 +134,7 @@ func (s *SkillService) ImportSkill(zipData string) (*models.Skill, error) {
 		License:       fm.License,
 		Compatibility: fm.Compatibility,
 		Metadata:      buildMetadata(fm),
-		AllowedTools:  buildAllowedToolsJSON(fm.AllowedTools),
+		AllowedTools:  buildAllowedTools(fm.AllowedTools),
 		Content:       decoded,
 	}
 
@@ -302,7 +303,7 @@ func (s *SkillService) repackAndSync(id string) error {
 			skill.License = fm.License
 			skill.Compatibility = fm.Compatibility
 			skill.Metadata = buildMetadata(fm)
-			skill.AllowedTools = buildAllowedToolsJSON(fm.AllowedTools)
+			skill.AllowedTools = buildAllowedTools(fm.AllowedTools)
 		}
 	}
 
@@ -361,12 +362,10 @@ func validateSkillName(name string) error {
 }
 
 func buildMetadata(fm *SkillFrontmatter) string {
-	m := map[string]interface{}{
-		"category": fm.Category,
-		"tags":     fm.Tags,
-		"version":  fm.Version,
+	if fm.Metadata == nil {
+		return "{}"
 	}
-	data, _ := json.Marshal(m)
+	data, _ := json.Marshal(fm.Metadata)
 	return string(data)
 }
 
@@ -375,12 +374,8 @@ func isMetaFile(name string) bool {
 	return strings.HasPrefix(name, "__MACOSX/") || strings.HasPrefix(base, "._")
 }
 
-func buildAllowedToolsJSON(tools []string) string {
-	if len(tools) == 0 {
-		return "[]"
-	}
-	data, _ := json.Marshal(tools)
-	return string(data)
+func buildAllowedTools(tools string) string {
+	return tools
 }
 
 func extractZip(zr *zip.Reader, destDir string) error {
