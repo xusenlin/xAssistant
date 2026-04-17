@@ -6,6 +6,7 @@ import Agents from "./pages/Agents";
 import Settings from "./pages/Settings";
 import Environment from "./pages/Environment";
 import Token from "./pages/Token";
+import Skills from "./pages/Skills";
 
 export default function App() {
   return (
@@ -17,7 +18,7 @@ export default function App() {
           <Route path="project" element={<PlaceholderPage title="Project" description="Manage your projects" />} />
           <Route path="cron" element={<PlaceholderPage title="Cron" description="Schedule and manage cron jobs" />} />
           <Route path="agent" element={<Agents />} />
-          <Route path="skills" element={<PlaceholderPage title="Skills" description="Configure AI agent skills" />} />
+          <Route path="skills" element={<Skills />} />
           <Route path="tools" element={<PlaceholderPage title="Tools" description="Manage available tools" />} />
           <Route path="mcp" element={<PlaceholderPage title="MCP" description="Model Context Protocol servers" />} />
           <Route path="settings" element={<Settings />} />

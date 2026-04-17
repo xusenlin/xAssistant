@@ -4,6 +4,7 @@ import (
 	"embed"
 	"log"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -42,6 +43,7 @@ func main() {
 	agentService := services.NewAgentService(dao.NewAgentDAO(db.DB))
 	environmentService := services.NewEnvironmentService()
 	modelStatService := services.NewModelStatService(dao.NewModelStatDAO(db.DB))
+	skillService := services.NewSkillService(dao.NewSkillDAO(db.DB), filepath.Join(cfg.AppDir, "skills"))
 
 	app := application.New(application.Options{
 		Name:        "xAssistant",
@@ -51,6 +53,7 @@ func main() {
 			application.NewService(agentService),
 			application.NewService(environmentService),
 			application.NewService(modelStatService),
+			application.NewService(skillService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
