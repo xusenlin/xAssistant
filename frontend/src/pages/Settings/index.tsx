@@ -15,18 +15,31 @@ import {
 import AboutDialog from "@/components/About";
 import { toast } from "sonner";
 import { Dialogs } from "@wailsio/runtime";
-import { SettingsService } from "../../../bindings/xAssistant/internal/services/index";
+import { OptionService } from "../../../bindings/xAssistant/internal/services/index";
+
+const PROXY_ENABLED_KEY = "proxy_enabled";
+const PROXY_URL_KEY = "proxy_url";
 
 export default function Settings() {
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [proxyEnabled, setProxyEnabled] = useState(() => localStorage.getItem("proxyEnabled") === "true");
-  const [proxyUrl, setProxyUrl] = useState(() => localStorage.getItem("proxyUrl") || "");
+  const [proxyEnabled, setProxyEnabled] = useState(false);
+  const [proxyUrl, setProxyUrl] = useState("");
   const [proxyTesting, setProxyTesting] = useState(false);
   const [proxyTestResult, setProxyTestResult] = useState<"success" | "fail" | null>(null);
   const [dbPath, setDbPath] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    SettingsService.GetDBPath().then(setDbPath);
+    Promise.all([
+      OptionService.GetDBPath(),
+      OptionService.Get(PROXY_ENABLED_KEY),
+      OptionService.Get(PROXY_URL_KEY),
+    ]).then(([path, enabled, url]) => {
+      setDbPath(path);
+      setProxyEnabled(enabled === "true");
+      setProxyUrl(url);
+      setLoading(false);
+    });
   }, []);
 
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -34,14 +47,15 @@ export default function Settings() {
   const [importing, setImporting] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  const handleProxyToggle = (checked: boolean) => {
+  const handleProxyToggle = async (checked: boolean) => {
     setProxyEnabled(checked);
-    localStorage.setItem("proxyEnabled", String(checked));
+    await OptionService.Set(PROXY_ENABLED_KEY, String(checked));
   };
 
-  const handleProxyUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setProxyUrl(e.target.value);
-    localStorage.setItem("proxyUrl", e.target.value);
+  const handleProxyUrlChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setProxyUrl(value);
+    await OptionService.Set(PROXY_URL_KEY, value);
     setProxyTestResult(null);
   };
 
@@ -106,6 +120,14 @@ export default function Settings() {
     setImportFile(null);
     if (importInputRef.current) importInputRef.current.value = "";
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

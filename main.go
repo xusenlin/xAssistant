@@ -10,8 +10,8 @@ import (
 
 	"xAssistant/internal/config"
 	"xAssistant/internal/crypto"
-	"xAssistant/internal/database"
 	"xAssistant/internal/dao"
+	"xAssistant/internal/database"
 	"xAssistant/internal/services"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -44,7 +44,10 @@ func main() {
 	environmentService := services.NewEnvironmentService()
 	modelStatService := services.NewModelStatService(dao.NewModelStatDAO(db.DB))
 	skillService := services.NewSkillService(dao.NewSkillDAO(db.DB), filepath.Join(cfg.AppDir, "skills"))
-	settingsService := services.NewSettingsService(cfg)
+	optionService := services.NewOptionService(dao.NewOptionDAO(db.DB), cfg)
+	if err := optionService.InitDefaults(); err != nil {
+		log.Fatal(err)
+	}
 
 	app := application.New(application.Options{
 		Name:        "xAssistant",
@@ -55,7 +58,7 @@ func main() {
 			application.NewService(environmentService),
 			application.NewService(modelStatService),
 			application.NewService(skillService),
-			application.NewService(settingsService),
+			application.NewService(optionService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -67,7 +70,7 @@ func main() {
 
 	width, height := getScreenSize()
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:           "xAssistant",
+		Title:            "xAssistant",
 		BackgroundColour: application.NewRGB(255, 255, 255),
 		URL:              "/",
 		Width:            width,
