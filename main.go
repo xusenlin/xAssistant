@@ -45,6 +45,10 @@ func main() {
 	modelStatService := services.NewModelStatService(dao.NewModelStatDAO(db.DB))
 	skillService := services.NewSkillService(dao.NewSkillDAO(db.DB), filepath.Join(cfg.AppDir, "skills"))
 	optionService := services.NewOptionService(dao.NewOptionDAO(db.DB), cfg)
+	conversationService := services.NewConversationService(dao.NewConversationDAO(db.DB))
+	messageService := services.NewMessageService(dao.NewMessageDAO(db.DB))
+	messageBlockService := services.NewMessageBlockService(dao.NewMessageBlockDAO(db.DB))
+
 	if err := optionService.InitDefaults(); err != nil {
 		log.Fatal(err)
 	}
@@ -59,6 +63,9 @@ func main() {
 			application.NewService(modelStatService),
 			application.NewService(skillService),
 			application.NewService(optionService),
+			application.NewService(conversationService),
+			application.NewService(messageService),
+			application.NewService(messageBlockService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
