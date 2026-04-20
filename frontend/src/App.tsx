@@ -7,6 +7,7 @@ import Settings from "./pages/Settings";
 import Environment from "./pages/Environment";
 import Token from "./pages/Token";
 import Skills from "./pages/Skills";
+import Chat from "./pages/Chat";
 
 export default function App() {
   return (
@@ -14,7 +15,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Dashboard />} />
-          <Route path="chat" element={<PlaceholderPage title="Chat" description="Start a conversation with AI" />} />
+          <Route path="chat" element={<Chat />} />
+          <Route path="chat/:id" element={<Chat />} />
           <Route path="project" element={<PlaceholderPage title="Project" description="Manage your projects" />} />
           <Route path="cron" element={<PlaceholderPage title="Cron" description="Schedule and manage cron jobs" />} />
           <Route path="agent" element={<Agents />} />

@@ -32,6 +32,13 @@ export default function Sidebar({ currentPath }: SidebarProps) {
   const navigate = useNavigate();
   const { collapsed } = useSidebar();
 
+  const isPathActive = (itemPath: string) => {
+    if (itemPath === "/") {
+      return currentPath === "/";
+    }
+    return currentPath === itemPath || currentPath.startsWith(itemPath + "/");
+  };
+
   return (
     <aside className={cn(
       "flex flex-col border-r bg-background transition-all duration-300",
@@ -41,7 +48,7 @@ export default function Sidebar({ currentPath }: SidebarProps) {
       <nav className={cn("flex flex-col gap-0.5 p-2", collapsed && "items-center")}>
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = currentPath === item.path;
+          const isActive = isPathActive(item.path);
 
           if (collapsed) {
             return (
@@ -92,7 +99,7 @@ export default function Sidebar({ currentPath }: SidebarProps) {
             <nav className="flex flex-col gap-0.5">
               {settingsItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = currentPath === item.path;
+                const isActive = isPathActive(item.path);
 
                 return (
                   <button

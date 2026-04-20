@@ -8,12 +8,13 @@ import { Toaster } from "sonner";
 
 function MainContent() {
   const location = useLocation();
+  const isChatPage = location.pathname.startsWith("/chat");
 
   return (
     <div className="flex flex-1 overflow-hidden">
       <Sidebar currentPath={location.pathname} />
       <main className="flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-        <div className="mx-auto max-w-4xl px-6 py-8">
+        <div className={isChatPage ?"mx-auto  px-6 py-8":"mx-auto max-w-4xl px-6 py-8"}>
           <Suspense fallback={
             <div className="flex h-[60vh] items-center justify-center">
               <div className="flex flex-col items-center gap-3">

@@ -22,7 +22,7 @@ func NewMessageService(repo MessageRepository) *MessageService {
 	return &MessageService{repo: repo}
 }
 
-func (s *MessageService) Create(conversationID, role, modelID string) (*models.Message, error) {
+func (s *MessageService) Create(conversationID, role, modelName string) (*models.Message, error) {
 	seq, err := s.repo.GetLastSequence(conversationID)
 	if err != nil {
 		return nil, err
@@ -31,7 +31,7 @@ func (s *MessageService) Create(conversationID, role, modelID string) (*models.M
 	m := &models.Message{
 		ConversationID: conversationID,
 		Role:           role,
-		ModelID:        modelID,
+		ModelName:      modelName,
 		SequenceOrder:  seq + 1,
 	}
 	if err := s.repo.Create(m); err != nil {
@@ -48,13 +48,13 @@ func (s *MessageService) GetByConversationID(conversationID string) ([]*models.M
 	return s.repo.GetByConversationID(conversationID)
 }
 
-func (s *MessageService) Update(id, role, modelID string, inputTokens, outputTokens int) error {
+func (s *MessageService) Update(id, role, modelName string, inputTokens, outputTokens int) error {
 	m, err := s.repo.GetByID(id)
 	if err != nil {
 		return err
 	}
 	m.Role = role
-	m.ModelID = modelID
+	m.ModelName = modelName
 	m.InputTokens = inputTokens
 	m.OutputTokens = outputTokens
 	return s.repo.Update(m)
