@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { Send, Bot, User, Loader2 } from "lucide-react";
+import { Bot, User, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import ChatInput from "@/components/Chat/ChatInput";
 import { Conversation, Message, MessageBlock } from "@/../bindings/xAssistant/internal/models";
 import { ConversationService, MessageService, MessageBlockService } from "@/../bindings/xAssistant/internal/services";
 
@@ -14,7 +13,6 @@ export default function ChatDetail() {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageBlocks, setMessageBlocks] = useState<Record<string, MessageBlock[]>>({});
-  const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -57,32 +55,23 @@ export default function ChatDetail() {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim() || !id || sending) return;
+  const handleSend = async (message: string, modelId: string) => {
+    if (!id || sending) return;
 
-    const userInput = input.trim();
-    setInput("");
     setSending(true);
 
     try {
       // Create user message
-      await MessageService.Create(id, "user", "");
+      await MessageService.Create(id, "user", modelId);
       await loadMessages();
 
       // TODO: Call AI API here
-      console.log("User message:", userInput);
+      console.log("User message:", message, "Model:", modelId);
 
       setSending(false);
     } catch (error) {
       console.error("Failed to send message:", error);
       setSending(false);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
     }
   };
 
@@ -187,7 +176,7 @@ export default function ChatDetail() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col flex-1">
       {/* Header */}
       <div className="flex items-center gap-4 border-b px-6 py-4">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
@@ -221,23 +210,7 @@ export default function ChatDetail() {
 
       {/* Input */}
       <div className="border-t p-4">
-        <div className="flex gap-2">
-          <Input
-            placeholder="Type a message..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={sending}
-            className="flex-1"
-          />
-          <Button size="icon" onClick={handleSend} disabled={sending || !input.trim()}>
-            {sending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
+        <ChatInput onSend={handleSend} sending={sending} />
       </div>
     </div>
   );
