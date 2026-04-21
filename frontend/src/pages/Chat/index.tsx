@@ -17,7 +17,13 @@ export default function Chat() {
   const loadConversations = async () => {
     try {
       const data = await ConversationService.GetAll();
-      setConversations((data || []).filter((c): c is Conversation => c !== null));
+      const filtered = (data || []).filter((c): c is Conversation => c !== null);
+      setConversations(filtered);
+
+      // If current conversation is deleted, navigate back
+      if (id && !filtered.find((c) => c.id === id)) {
+        navigate("/chat");
+      }
     } catch (error) {
       console.error("Failed to load conversations:", error);
     }

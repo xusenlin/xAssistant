@@ -2,6 +2,33 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Behavioral Guidelines
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+### Think Before Coding
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+### Simplicity First
+- Minimum code that solves the problem. Nothing speculative.
+- No features beyond what was asked.
+- If you write 200 lines and it could be 50, rewrite it.
+
+### Surgical Changes
+- Touch only what you must.
+- Match existing style, even if you'd do it differently.
+- Every changed line should trace directly to the user's request.
+
+---
+
+## Tech Stack
+
+- **Framework**: [Wails v3](https://wails.io/) - Build desktop apps with Go + modern web tech
+- **Frontend**: React 18 + TypeScript + Tailwind CSS + Radix UI + Zustand + React Router v7
+- **Backend**: Go with GORM v1 + SQLite, AES-256-GCM encryption
+
 ## Development Commands
 
 ```bash
@@ -18,113 +45,105 @@ go build ./...
 cd frontend && npx tsc --noEmit
 ```
 
+## Project Structure
+
+```
+xAssistant/
+├── main.go                    # Go application entry point
+├── internal/
+│   ├── config/               # App configuration manager
+│   ├── crypto/               # AES-256-GCM encryption
+│   ├── database/             # GORM + SQLite setup
+│   ├── models/               # GORM data models
+│   ├── dao/                  # Data access layer
+│   └── services/             # Business logic + Wails service registration
+└── frontend/                 # React frontend
+    ├── src/
+    │   ├── components/        # UI components (shadcn-style)
+    │   ├── pages/             # Page components
+    │   ├── layouts/          # Layout components
+    │   └── App.tsx            # Router setup
+    └── bindings/              # Auto-generated Wails TypeScript bindings
+```
+
 ## Architecture
 
-### Stack
-- **Wails v3** — desktop app framework binding Go backend + React frontend
-- **Frontend**: React 18 + TypeScript + Tailwind CSS + Radix UI + Zustand + React Router v7
-- **Backend**: Go with GORM v1 + SQLite, AES-256-GCM encryption
-- **Frontend bindings**: Wails auto-generates TypeScript bindings from Go service structs at dev time (in `frontend/bindings/`). **Do not edit bindings manually** — regenerate by running `wails dev`.
-
-### Backend Layer Architecture
+### Backend Layer (Go)
 ```
 main.go
   |-- config.Manager       (app config, ~/.xAssistant/)
-  |   |-- config.json     (encrypted key + salt)
-  |-- database.Database   (GORM + SQLite, AutoMigrate)
-  |-- crypto.Crypto       (AES-256-GCM, Encrypter interface)
-  +-- services.*Service   (defines Repository interfaces, business logic)
-       +-- dao.*DAO       (concrete types, returns *XxxDAO)
-            +-- models.*  (GORM struct, table via TableName())
+  |-- database.Database    (GORM + SQLite, AutoMigrate)
+  |-- crypto.Crypto        (AES-256-GCM)
+  +-- services.*Service    (business logic, registered to Wails)
+       +-- dao.*DAO         (implements Repository interface)
+            +-- models.*   (GORM structs)
 ```
 
-**Dependency direction: services → dao → models** (no cycles). Services define interfaces; dao implements them implicitly by matching method signatures.
+**Dependency direction: services → dao → models** (no cycles)
 
-Each domain has its own model/dao/service triplet. Service methods are registered in `main.go` via `application.NewService()`. Wails exposes them to the frontend as typed API calls.
+### Frontend Bindings
+Wails auto-generates TypeScript bindings from Go services in `frontend/bindings/`. **Do not edit manually** — regenerated on every `wails3 dev`.
 
-### Adding a New Backend Module
-1. Create `internal/models/<name>.go` — GORM struct with `TableName()` returning the table name
-2. Create `internal/dao/<name>_dao.go` — concrete DAO, return `*<Name>DAO` (not an interface), no import of services
-3. Create `internal/services/<name>_service.go` — define `Repository` interface here (in services), service uses that interface
-4. Add model to `database/database.go` `AutoMigrate`
-5. Instantiate in `main.go` and register via `application.NewService()`
+## Adding a New Backend Module
 
-### Data Storage
-- `~/.xAssistant/config.json` — encrypted key, salt, app settings
-- `~/.xAssistant/data.db` — SQLite database (auto-created on first run)
+1. Create `internal/models/<name>.go` — GORM struct with `TableName()`
+2. Create `internal/dao/<name>_dao.go` — concrete DAO, returns `*<Name>DAO`
+3. Create `internal/services/<name>_service.go` — define Repository interface here
+4. Add model to `database/database.go` `AutoMigrate()`
+5. Register in `main.go`: `services.NewXxxService(dao.NewXxxDAO(db.DB))`
 
-### Window
-Window size defaults to 80% of primary screen resolution (fallback 1280x800). Configured in `main.go` via `getScreenSize()`.
+## Data Storage
 
-### Frontend Patterns
-- All API calls go through Wails auto-generated bindings (`import { XxxService } from "../../../bindings/xAssistant/internal/services/index"`)
-- UI components live in `src/components/ui/` (shadcn-style)
-- Pages live in `src/pages/`
-- Form dialogs use Radix Dialog, tabs use Radix Tabs
-- Scrollbar hidden via ` [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]`
+- `~/.xAssistant/config.json` — encrypted key, salt, settings
+- `~/.xAssistant/data.db` — SQLite database
 
-## Common Mistakes to Avoid
+## Common Patterns
 
-### Wails Bindings Are Auto-Generated — Never Edit Manually
-- `frontend/bindings/` is regenerated by `wails3 dev`. Any manual edits are **wiped** on next run.
-- If you need a type in TypeScript, define it in the Go `models` package — Wails auto-generates TypeScript for types in `models`. Types in `services` are **not** auto-generated.
-- If a binding file has placeholder IDs (e.g., `$Call.ByID(1234567890)`), run `wails3 dev` once to regenerate with real IDs.
-
-### Go Interface Design (Critical)
-**Principle: Define interfaces at the consumer side, not the producer side.**
-
-Go uses **structural typing** — if a type implements all interface methods, it satisfies the interface implicitly. No explicit declaration needed.
-
-```
-models/   — data structs only, 0 dependencies
-dao/      — implements methods, returns concrete *XxxDAO, imports nothing from services
-services/  — defines Repository interfaces here, uses them as struct fields and function params
-main/     — wires everything together: services.NewXxxService(dao.NewXxxDAO(db.DB), ...)
-```
-
-**What NOT to do:**
-- ❌ DAO returning an interface type (`func NewXxxDAO() services.XxxRepository`) — requires dao to import services → **import cycle**
-- ❌ Interfaces in `models/interfaces.go` — models package should only hold data structs
-- ❌ DAO declaring it implements an interface
-- ❌ 程序里面不要使用中文提示或者注释 
-
-
-
-**Correct pattern:**
+### Go Interface Design
 ```go
-// services — defines interface (consumer side)
+// services — defines interface at consumer side
 type ModelRepository interface {
     Create(model *models.Model) error
     GetAll() ([]*models.Model, error)
 }
 
-type ModelService struct {
-    repo ModelRepository
-}
+// dao — concrete type, no interface knowledge
+func NewModelDAO(db *gorm.DB) *ModelDAO { ... }
 
-func NewModelService(repo ModelRepository) *ModelService {
-    return &ModelService{repo: repo}
-}
-
-// dao — concrete type only, no knowledge of any interface
-func NewModelDAO(db *gorm.DB) *ModelDAO {
-    return &ModelDAO{db: db}
-}
-
-// main — Go auto-satisfies the interface at compile time
+// main — Go auto-satisfies interface
 svc := services.NewModelService(dao.NewModelDAO(db.DB))
 ```
 
-**Do you even need interfaces?** Interface layers exist for mock testing. If the project doesn't need mocking, just use concrete types directly in the service struct (`dao *ModelDAO`). Simpler, fewer files, no fake abstraction.
-
 ### TypeScript Type Imports
-- `Model` type: import from `"../models/index"` (not from services index)
-- `StatSummary` and other service return types: define in Go `models` package so Wails generates them automatically
-- Auto-generated bindings return `(T | null)[]` arrays — filter nulls before use: `.filter((x): x is T => x !== null)`
+```typescript
+// Model type from bindings
+import { Model } from "../bindings/xAssistant/internal/models";
 
-### Edit Tool Syntax
-- `Edit` tool requires both `old_string` and `new_string` parameters.
-- If the string appears multiple times, either use `replace_all: true` or provide more context to uniquely identify the target.
+// Service API calls
+import { ModelService } from "../bindings/xAssistant/internal/services";
+
+// Filter nulls from array bindings
+const models = (data || []).filter((m): m is Model => m !== null);
+```
 
 ### Route Registration
-- After creating a new page in `src/pages/`, remember to: (1) import it in `App.tsx`, (2) add the `<Route>` entry, (3) add the sidebar nav item in `Sidebar.tsx`.
+After creating a page in `src/pages/`:
+1. Import in `App.tsx`
+2. Add `<Route>` entry
+3. Add nav item in `Sidebar.tsx`
+
+## Common Mistakes
+
+### Wails Bindings
+- `frontend/bindings/` is regenerated by `wails3 dev`. Any manual edits are **wiped**.
+- If a binding has placeholder IDs (`$Call.ByID(1234567890)`), run `wails3 dev` once.
+
+### Go Interface Rules
+- ❌ DAO returning interface type → import cycle
+- ❌ Interfaces in `models/` → models should only hold data structs
+- ❌ DAO declaring `implements XxxRepository`
+- ✅ use English for prompts/comments
+
+### Edit Tool
+- `Edit` requires both `old_string` and `new_string`
+- Use `replace_all: true` for repeated strings

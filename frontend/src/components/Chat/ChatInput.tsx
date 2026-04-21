@@ -87,7 +87,7 @@ export default function ChatInput({
         <InputGroupAddon align="block-end">
           {/* Model Selector */}
           <Select value={selectedModelId} onValueChange={setSelectedModelId}>
-            <SelectTrigger className="w-[100px] h-8 border-0 bg-transparent shadow-none focus:ring-0 text-xs px-1">
+            <SelectTrigger className="h-8 border-0 bg-transparent shadow-none focus:ring-0 text-xs px-1">
               <SelectValue>
                 {selectedModel ? (
                   selectedModel.name

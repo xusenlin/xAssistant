@@ -97,7 +97,11 @@ func (s *ConversationService) Archive(id string) error {
 	if err != nil {
 		return err
 	}
-	c.Status = "archived"
+	if c.Status == "archived" {
+		c.Status = "active"
+	} else {
+		c.Status = "archived"
+	}
 	return s.repo.Update(c)
 }
 

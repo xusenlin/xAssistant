@@ -57,13 +57,13 @@ export default function ConversationList({
     return (
       <div
         key={conversation.id}
-        onClick={() => onSelect(conversation)}
         className={cn(
-          "group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
+          "group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors cursor-pointer",
           isSelected
             ? "bg-primary/10 text-primary"
             : "hover:bg-accent"
         )}
+        onClick={() => onSelect(conversation)}
       >
         <div className={cn(
           "flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg",
@@ -96,18 +96,19 @@ export default function ConversationList({
           </div>
         </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-            >
-              <MoreVertical className="h-4 w-4" />
+        <div onClick={(e) => e.stopPropagation()}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+              >
+                <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => handleTogglePin(conversation)}>
+            <DropdownMenuItem onClick={() => handleTogglePin(conversation, onRefresh)}>
               {conversation.pinned ? (
                 <>
                   <PinOff className="mr-2 h-4 w-4" />
@@ -120,7 +121,7 @@ export default function ConversationList({
                 </>
               )}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleArchive(conversation)}>
+            <DropdownMenuItem onClick={() => handleArchive(conversation, onRefresh)}>
               {conversation.status === "archived" ? (
                 <>
                   <ArchiveRestore className="mr-2 h-4 w-4" />
@@ -142,6 +143,7 @@ export default function ConversationList({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        </div>
       </div>
     );
   };
@@ -190,14 +192,27 @@ export default function ConversationList({
   );
 }
 
-async function handleTogglePin(conversation: Conversation) {
-  // TODO: implement toggle pin
-  console.log("toggle pin", conversation.id);
+async function handleTogglePin(conversation: Conversation, onRefresh: () => void) {
+  toast.promise(ConversationService.TogglePin(conversation.id), {
+    loading: conversation.pinned ? "Unpinning..." : "Pinning...",
+    success: () => {
+      onRefresh();
+      return conversation.pinned ? "Unpinned" : "Pinned";
+    },
+    error: "Failed to update pin status",
+  });
 }
 
-async function handleArchive(conversation: Conversation) {
-  // TODO: implement archive
-  console.log("archive", conversation.id);
+async function handleArchive(conversation: Conversation, onRefresh: () => void) {
+  const action = conversation.status === "archived" ? "unarchiving" : "archiving";
+  toast.promise(ConversationService.Archive(conversation.id), {
+    loading: `${action.charAt(0).toUpperCase() + action.slice(1)}...`,
+    success: () => {
+      onRefresh();
+      return conversation.status === "archived" ? "Unarchived" : "Archived";
+    },
+    error: "Failed to update archive status",
+  });
 }
 
 async function handleDelete(conversation: Conversation, onRefresh: () => void) {
