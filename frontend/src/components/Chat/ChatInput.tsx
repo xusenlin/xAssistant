@@ -17,6 +17,7 @@ interface ChatInputProps {
   disabled?: boolean;
   sending?: boolean;
   defaultModelId?: string;
+  onModelChange?: (modelId: string) => void;
 }
 
 export default function ChatInput({
@@ -24,6 +25,7 @@ export default function ChatInput({
   disabled,
   sending,
   defaultModelId,
+  onModelChange,
 }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [selectedModelId, setSelectedModelId] = useState<string>(defaultModelId || "");
@@ -40,7 +42,7 @@ export default function ChatInput({
     } else if (models.length > 0 && !selectedModelId) {
       const enabledModel = models.find((m) => m.enabled);
       if (enabledModel) {
-        setSelectedModelId(enabledModel.model_id);
+        setSelectedModelId(enabledModel.id);
       }
     }
   }, [models, defaultModelId]);
@@ -69,7 +71,7 @@ export default function ChatInput({
     }
   };
 
-  const selectedModel = models.find((m) => m.model_id === selectedModelId);
+  const selectedModel = models.find((m) => m.id === selectedModelId);
 
   return (
     <div className="flex flex-col gap-2">
@@ -86,7 +88,12 @@ export default function ChatInput({
         {/* Right Addon */}
         <InputGroupAddon align="block-end">
           {/* Model Selector */}
-          <Select value={selectedModelId} onValueChange={setSelectedModelId}>
+          <Select value={selectedModelId} onValueChange={(value) => {
+            setSelectedModelId(value);
+            if (onModelChange) {
+              onModelChange(value);
+            }
+          }}>
             <SelectTrigger className="h-8 border-0 bg-transparent shadow-none focus:ring-0 text-xs px-1">
               <SelectValue>
                 {selectedModel ? (
@@ -109,7 +116,7 @@ export default function ChatInput({
                 models
                   .filter((m) => m.enabled)
                   .map((model) => (
-                    <SelectItem key={model.id} value={model.model_id} className="py-2">
+                    <SelectItem key={model.id} value={model.id} className="py-2">
                       <div className="flex flex-col gap-0.5">
                         <span className="font-medium text-xs">{model.name}</span>
                         <span className="text-[10px] text-muted-foreground">

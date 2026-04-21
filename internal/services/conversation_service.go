@@ -128,3 +128,12 @@ func (s *ConversationService) IncrementTokenCount(id string, inputTokens, output
 	c.TotalTokens = c.InputTokens + c.OutputTokens
 	return s.repo.Update(c)
 }
+
+func (s *ConversationService) UpdateModelID(id, modelID string) error {
+	c, err := s.repo.GetByID(id)
+	if err != nil {
+		return err
+	}
+	c.ModelID = modelID
+	return s.repo.Update(c)
+}

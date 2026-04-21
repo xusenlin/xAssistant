@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { Bot, User, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -6,7 +6,13 @@ import remarkGfm from "remark-gfm";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatInput from "@/components/Chat/ChatInput";
 import { Conversation, Message, MessageBlock } from "@/../bindings/xAssistant/internal/models";
-import { ConversationService, MessageService, MessageBlockService } from "@/../bindings/xAssistant/internal/services";
+import { ConversationService, MessageService, MessageBlockService, ChatService } from "@/../bindings/xAssistant/internal/services";
+import { Events } from "@wailsio/runtime";
+
+interface StreamState {
+  messageID: string | null;
+  content: string;
+}
 
 export default function ChatDetail() {
   const { id } = useParams<{ id: string }>();
@@ -14,6 +20,7 @@ export default function ChatDetail() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageBlocks, setMessageBlocks] = useState<Record<string, MessageBlock[]>>({});
   const [sending, setSending] = useState(false);
+  const [streamState, setStreamState] = useState<StreamState>({ messageID: null, content: "" });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const loadConversation = async () => {
@@ -30,21 +37,59 @@ export default function ChatDetail() {
     if (!id) return;
     try {
       const msgs = await MessageService.GetByConversationID(id);
-      setMessages((msgs || []).filter((m): m is Message => m !== null));
+      const filteredMsgs = (msgs || []).filter((m): m is Message => m !== null);
 
       // Load blocks for each message
       const blocksMap: Record<string, MessageBlock[]> = {};
-      for (const msg of msgs || []) {
+      for (const msg of filteredMsgs) {
         if (msg) {
           const blocks = await MessageBlockService.GetByMessageID(msg.id);
-          blocksMap[msg.id] = (blocks || []).filter((b): b is MessageBlock => b !== null);
+          const filteredBlocks = (blocks || []).filter((b): b is MessageBlock => b !== null);
+          blocksMap[msg.id] = filteredBlocks;
         }
       }
+
+      // Filter out messages without blocks (legacy data)
+      const validMessages = filteredMsgs.filter(m => blocksMap[m.id]?.length > 0);
+      setMessages(validMessages);
       setMessageBlocks(blocksMap);
     } catch (error) {
       console.error("Failed to load messages:", error);
     }
   };
+
+  // Set up stream event listeners
+  useEffect(() => {
+    const tokenHandler = (ev: { data: { messageID: string; token: string } }) => {
+      setStreamState(prev => ({
+        messageID: ev.data.messageID,
+        content: prev.content + ev.data.token,
+      }));
+    };
+
+    const endHandler = async (ev: { data: { messageID: string } }) => {
+      await loadMessages();
+      setStreamState({ messageID: null, content: "" });
+      setSending(false);
+    };
+
+    const errorHandler = async (ev: { data: { messageID: string; error: string } }) => {
+      console.error("Stream error:", ev.data.error);
+      await loadMessages();
+      setStreamState({ messageID: null, content: "" });
+      setSending(false);
+    };
+
+    Events.On("stream:token", tokenHandler);
+    Events.On("stream:end", endHandler);
+    Events.On("stream:error", errorHandler);
+
+    return () => {
+      Events.Off("stream:token");
+      Events.Off("stream:end");
+      Events.Off("stream:error");
+    };
+  }, []);
 
   useEffect(() => {
     loadConversation();
@@ -53,31 +98,34 @@ export default function ChatDetail() {
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, streamState.content]);
 
-  const handleSend = async (message: string, modelId: string) => {
+  const handleSend = useCallback((message: string, modelId: string) => {
     if (!id || sending) return;
 
     setSending(true);
+    setStreamState({ messageID: null, content: "" });
 
-    try {
-      // Create user message
-      await MessageService.Create(id, "user", modelId);
-      await loadMessages();
-
-      // TODO: Call AI API here
-      console.log("User message:", message, "Model:", modelId);
-
-      setSending(false);
-    } catch (error) {
-      console.error("Failed to send message:", error);
-      setSending(false);
-    }
-  };
+    ChatService.SendMessageStream(id, message, modelId)
+      .then(async (messageID) => {
+        // Start with empty content, will be updated by events
+        setStreamState({ messageID, content: "" });
+        // Add placeholder message to UI
+        await loadMessages();
+      })
+      .catch(async (error) => {
+        console.error("SendMessageStream error:", error);
+        await loadMessages();
+        setSending(false);
+      });
+  }, [id, sending]);
 
   const renderMessage = (message: Message) => {
-    const blocks = messageBlocks[message.id] || [];
     const isUser = message.role === "user";
+    const isStreaming = streamState.messageID === message.id;
+    const blocks = isStreaming
+      ? [{ id: "streaming", message_id: message.id, block_type: "text", content: streamState.content, tool_use_id: "", tool_name: "", tool_input: "", tool_result: "", is_error: false, created_at: "", updated_at: "" }]
+      : (messageBlocks[message.id] || []);
 
     return (
       <div
@@ -92,7 +140,7 @@ export default function ChatDetail() {
 
         <div className={`flex flex-col gap-1 ${isUser ? "items-end" : "items-start"} max-w-[70%]`}>
           <div className={`rounded-lg px-4 py-2 ${
-            isUser ? "bg-primary text-primary-foreground" : "bg-muted"
+            isUser ? "bg-primary/10 text-primary-foreground" : "bg-muted"
           }`}>
             {blocks.length === 0 ? (
               <p className="text-sm">No content</p>
@@ -147,6 +195,9 @@ export default function ChatDetail() {
                 </div>
               ))
             )}
+            {isStreaming && (
+              <span className="animate-pulse">▊</span>
+            )}
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {!isUser && message.model_name && (
@@ -193,7 +244,7 @@ export default function ChatDetail() {
       {/* Messages */}
       <ScrollArea className="flex-1 px-6 py-4">
         <div className="flex flex-col gap-4">
-          {messages.length === 0 ? (
+          {messages.length === 0 && !streamState.messageID ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <Bot className="h-12 w-12 text-muted-foreground/50" />
               <p className="mt-4 text-sm font-medium">Start the conversation</p>
@@ -210,7 +261,16 @@ export default function ChatDetail() {
 
       {/* Input */}
       <div className="border-t p-4">
-        <ChatInput onSend={handleSend} sending={sending} />
+        <ChatInput
+          onSend={handleSend}
+          sending={sending}
+          defaultModelId={conversation?.model_id}
+          onModelChange={(modelId) => {
+            if (id && modelId) {
+              ConversationService.UpdateModelID(id, modelId);
+            }
+          }}
+        />
       </div>
     </div>
   );

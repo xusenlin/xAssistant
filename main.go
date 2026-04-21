@@ -39,15 +39,28 @@ func main() {
 	}
 
 	cryptoSvc, _ := crypto.NewCrypto(cfg.Get().EncryptionKey, cfg.Get().EncryptionSalt)
-	modelService := services.NewModelService(dao.NewModelDAO(db.DB), cryptoSvc)
-	agentService := services.NewAgentService(dao.NewAgentDAO(db.DB))
+
+	// DAO 实例
+	modelDAO := dao.NewModelDAO(db.DB)
+	agentDAO := dao.NewAgentDAO(db.DB)
+	modelStatDAO := dao.NewModelStatDAO(db.DB)
+	skillDAO := dao.NewSkillDAO(db.DB)
+	optionDAO := dao.NewOptionDAO(db.DB)
+	conversationDAO := dao.NewConversationDAO(db.DB)
+	messageDAO := dao.NewMessageDAO(db.DB)
+	messageBlockDAO := dao.NewMessageBlockDAO(db.DB)
+
+	// Service 实例
+	modelService := services.NewModelService(modelDAO, cryptoSvc)
+	agentService := services.NewAgentService(agentDAO)
 	environmentService := services.NewEnvironmentService()
-	modelStatService := services.NewModelStatService(dao.NewModelStatDAO(db.DB))
-	skillService := services.NewSkillService(dao.NewSkillDAO(db.DB), filepath.Join(cfg.AppDir, "skills"))
-	optionService := services.NewOptionService(dao.NewOptionDAO(db.DB), cfg)
-	conversationService := services.NewConversationService(dao.NewConversationDAO(db.DB))
-	messageService := services.NewMessageService(dao.NewMessageDAO(db.DB))
-	messageBlockService := services.NewMessageBlockService(dao.NewMessageBlockDAO(db.DB))
+	modelStatService := services.NewModelStatService(modelStatDAO)
+	skillService := services.NewSkillService(skillDAO, filepath.Join(cfg.AppDir, "skills"))
+	optionService := services.NewOptionService(optionDAO, cfg)
+	conversationService := services.NewConversationService(conversationDAO)
+	messageService := services.NewMessageService(messageDAO)
+	messageBlockService := services.NewMessageBlockService(messageBlockDAO)
+	chatService := services.NewChatService(conversationDAO, messageDAO, messageBlockDAO, modelService)
 
 	if err := optionService.InitDefaults(); err != nil {
 		log.Fatal(err)
@@ -66,6 +79,7 @@ func main() {
 			application.NewService(conversationService),
 			application.NewService(messageService),
 			application.NewService(messageBlockService),
+			application.NewService(chatService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -74,6 +88,9 @@ func main() {
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 	})
+
+	// Set app reference for streaming events
+	chatService.SetApp(app)
 
 	width, height := getScreenSize()
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
