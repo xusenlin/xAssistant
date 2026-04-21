@@ -7,7 +7,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { toast } from "sonner";
 import { Conversation } from "@/../bindings/xAssistant/internal/models";
+import { ConversationService } from "@/../bindings/xAssistant/internal/services";
 import { cn } from "@/lib/utils";
 
 interface ConversationListProps {
@@ -132,7 +134,7 @@ export default function ConversationList({
               )}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => handleDelete(conversation)}
+              onClick={() => handleDelete(conversation, onRefresh)}
               className="text-destructive"
             >
               <Trash2 className="mr-2 h-4 w-4" />
@@ -198,7 +200,13 @@ async function handleArchive(conversation: Conversation) {
   console.log("archive", conversation.id);
 }
 
-async function handleDelete(conversation: Conversation) {
-  // TODO: implement delete
-  console.log("delete", conversation.id);
+async function handleDelete(conversation: Conversation, onRefresh: () => void) {
+  toast.promise(ConversationService.Delete(conversation.id), {
+    loading: "Deleting...",
+    success: () => {
+      onRefresh();
+      return "Conversation deleted";
+    },
+    error: "Failed to delete conversation",
+  });
 }

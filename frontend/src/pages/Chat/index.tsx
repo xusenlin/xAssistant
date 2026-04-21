@@ -76,7 +76,7 @@ export default function Chat() {
   };
 
   return (
-    <div className="flex h-screen -m-6">
+    <div className="flex h-[calc(100vh-5rem)]">
       {/* Conversation List Panel */}
       <div className="flex w-72 flex-shrink-0 flex-col border-r bg-card">
         {/* Header */}
