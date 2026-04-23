@@ -71,6 +71,15 @@ func (s *MessageService) UpdateTokens(id string, inputTokens, outputTokens int) 
 	return s.repo.Update(m)
 }
 
+func (s *MessageService) UpdateStatus(id string, status string) error {
+	m, err := s.repo.GetByID(id)
+	if err != nil {
+		return err
+	}
+	m.Status = status
+	return s.repo.Update(m)
+}
+
 func (s *MessageService) Delete(id string) error {
 	return s.repo.Delete(id)
 }

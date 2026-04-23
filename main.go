@@ -89,9 +89,6 @@ func main() {
 		},
 	})
 
-	// Set app reference for streaming events
-	chatService.SetApp(app)
-
 	width, height := getScreenSize()
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "xAssistant",

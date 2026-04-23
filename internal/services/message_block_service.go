@@ -31,9 +31,28 @@ func (s *MessageBlockService) CreateTextBlock(messageID, content string) (*model
 
 	b := &models.MessageBlock{
 		MessageID:     messageID,
-		BlockType:     "text",
+		BlockType:     models.BlockTypeText,
 		SequenceOrder: seq + 1,
 		Content:       content,
+	}
+	if err := s.repo.Create(b); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func (s *MessageBlockService) CreateErrorTextBlock(messageID, content string) (*models.MessageBlock, error) {
+	seq, err := s.repo.GetLastSequence(messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	b := &models.MessageBlock{
+		MessageID:     messageID,
+		BlockType:     models.BlockTypeText,
+		SequenceOrder: seq + 1,
+		Content:       content,
+		IsError:       true,
 	}
 	if err := s.repo.Create(b); err != nil {
 		return nil, err
@@ -49,7 +68,7 @@ func (s *MessageBlockService) CreateThinkingBlock(messageID, content string) (*m
 
 	b := &models.MessageBlock{
 		MessageID:     messageID,
-		BlockType:     "thinking",
+		BlockType:     models.BlockTypeThinking,
 		SequenceOrder: seq + 1,
 		Content:       content,
 	}
@@ -67,7 +86,7 @@ func (s *MessageBlockService) CreateToolUseBlock(messageID, toolUseID, toolName,
 
 	b := &models.MessageBlock{
 		MessageID:     messageID,
-		BlockType:     "tool_use",
+		BlockType:     models.BlockTypeToolUse,
 		SequenceOrder: seq + 1,
 		ToolUseID:     toolUseID,
 		ToolName:      toolName,
@@ -79,7 +98,7 @@ func (s *MessageBlockService) CreateToolUseBlock(messageID, toolUseID, toolName,
 	return b, nil
 }
 
-func (s *MessageBlockService) CreateToolResultBlock(messageID, toolUseID, toolResult string, isError bool) (*models.MessageBlock, error) {
+func (s *MessageBlockService) CreateToolResultBlock(messageID, toolUseID, toolName, toolResult string, isError bool) (*models.MessageBlock, error) {
 	seq, err := s.repo.GetLastSequence(messageID)
 	if err != nil {
 		return nil, err
@@ -87,9 +106,10 @@ func (s *MessageBlockService) CreateToolResultBlock(messageID, toolUseID, toolRe
 
 	b := &models.MessageBlock{
 		MessageID:     messageID,
-		BlockType:     "tool_result",
+		BlockType:     models.BlockTypeToolResult,
 		SequenceOrder: seq + 1,
 		ToolUseID:     toolUseID,
+		ToolName:      toolName,
 		ToolResult:    toolResult,
 		IsError:       isError,
 	}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Bot, User, Loader2 } from "lucide-react";
+import { Bot, User, Loader2, AlertTriangle } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -110,11 +110,22 @@ export default function ChatDetail() {
               blocks.map((block) => (
                 <div key={block.id} className="text-sm">
                   {block.block_type === "text" && (
-                    <div className="mt-2 prose prose-sm max-w-none dark:prose-invert">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {block.content}
-                      </ReactMarkdown>
-                    </div>
+                    block.is_error ? (
+                      <div className="mt-2 rounded bg-red-100 p-2 text-xs text-red-800 dark:bg-red-900/30 dark:text-red-200">
+                        <div className="flex items-center gap-1 font-medium">
+                          <AlertTriangle className="h-3 w-3" /> Error
+                        </div>
+                        <pre className="mt-1 overflow-x-auto whitespace-pre-wrap">
+                          {block.content}
+                        </pre>
+                      </div>
+                    ) : (
+                      <div className="mt-2 prose prose-sm max-w-none dark:prose-invert">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {block.content}
+                        </ReactMarkdown>
+                      </div>
+                    )
                   )}
                   {block.block_type === "thinking" && (
                     <div className="mt-2 rounded bg-yellow-100 p-2 text-xs text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200">
@@ -147,7 +158,11 @@ export default function ChatDetail() {
                         : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
                     }`}>
                       <div className="flex items-center gap-1 font-medium">
-                        <span>📦</span> Result
+                        {block.is_error ? (
+                          <AlertTriangle className="h-3 w-3" />
+                        ) : (
+                          <span>📦</span>
+                        )} Result
                       </div>
                       <pre className="mt-1 overflow-x-auto whitespace-pre-wrap">
                         {block.tool_result}

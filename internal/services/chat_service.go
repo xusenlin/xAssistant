@@ -19,12 +19,6 @@ type ChatService struct {
 	messageService      *MessageService
 	messageBlockService *MessageBlockService
 	modelService        *ModelService
-	app                 *application.App
-}
-
-type ModelGetter interface {
-	GetByID(id string) (*models.Model, error)
-	GetDecryptedAPIKey(id string) (string, error)
 }
 
 func NewChatService(
@@ -46,24 +40,8 @@ func (s *ChatService) ServiceStartup(ctx context.Context, options application.Se
 	return nil
 }
 
-func (s *ChatService) SetApp(app *application.App) {
-	s.app = app
-}
-
-func (s *ChatService) emit(name string, data ...any) {
-	if s.app != nil {
-		s.app.Event.Emit(name, data...)
-	}
-}
-
 // SendMessageStream sends a message with streaming output
 func (s *ChatService) SendMessageStream(conversationID, userInput, modelID string) (string, error) {
-	// Get conversation
-	conversation, err := s.conversationService.GetByID(conversationID)
-	if err != nil {
-		return "", err
-	}
-
 	// Get model config
 	modelConfig, err := s.modelService.GetByID(modelID)
 	if err != nil {
@@ -76,35 +54,39 @@ func (s *ChatService) SendMessageStream(conversationID, userInput, modelID strin
 		return "", err
 	}
 
-	if err := s.saveUserMessage(conversationID, userInput, modelConfig.Name); err != nil {
+	// Create user message
+	userMsg, err := s.messageService.Create(conversationID, "user", modelConfig.Name)
+	if err != nil {
+		return "", err
+	}
+	if _, err := s.messageBlockService.CreateTextBlock(userMsg.ID, userInput); err != nil {
 		return "", err
 	}
 
-	// Update conversation
-	conversation.MessageCount++
-	if err := s.conversationService.repo.Update(conversation); err != nil {
+	// Update conversation message count
+	if err := s.conversationService.IncrementMessageCount(conversationID); err != nil {
 		return "", err
 	}
 
 	// Create assistant message
-
 	agentMsg, err := s.messageService.Create(conversationID, "assistant", modelConfig.Name)
 	if err != nil {
 		return "", err
 	}
+	fmt.Println("[DUBUG]agentMsg:", agentMsg)
 
-	// Run streaming in background
-	go s.runStreamingInBackground(conversation, agentMsg, modelConfig, apiKey, userInput)
+	go s.runStreamingInBackground(conversationID, agentMsg.ID, modelConfig, apiKey, userInput)
 
 	return agentMsg.ID, nil
 }
 
-func (s *ChatService) runStreamingInBackground(conversation *models.Conversation, message *models.Message, modelConfig *models.Model, apiKey, userInput string) {
+func (s *ChatService) runStreamingInBackground(conversationID, messageID string, modelConfig *models.Model, apiKey, userInput string) {
 	// Run with streaming
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	// Build provider
+	fmt.Println("[DEBUG]modelConfig:", modelConfig.ID, modelConfig.Name, modelConfig.Provider, modelConfig.ModelID, modelConfig.BaseURL)
 	p, err := s.buildProvider(ctx, modelConfig, apiKey)
 	if err != nil {
 		//TODO 错误推送
@@ -120,6 +102,7 @@ func (s *ChatService) runStreamingInBackground(conversation *models.Conversation
 		WithSystemPrompt("You are a helpful assistant.").
 		Build()
 
+	fmt.Println("[DEBUG]a:", a)
 	if err != nil {
 		//TODO 错误推送
 		fmt.Println("Error-128:", err)
@@ -134,56 +117,36 @@ func (s *ChatService) runStreamingInBackground(conversation *models.Conversation
 		fmt.Println("Error-136:", err)
 		return
 	}
+	s.messageService.UpdateStatus(messageID, models.MessageStatusStreaming)
+
 	// Process stream events
 	for block := range streamCh {
 		switch block.Type {
 		case agent.BlockThinkEnd:
-			s.saveBlockSeqIncrement(&models.MessageBlock{
-				MessageID: message.ID,
-				BlockType: models.BlockTypeThinking,
-				Content:   block.Content,
-			})
+			s.messageBlockService.CreateThinkingBlock(messageID, block.Full)
+			fmt.Println("BlockThinkEnd:", block.Full)
 		case agent.BlockTextEnd:
-			s.saveBlockSeqIncrement(&models.MessageBlock{
-				MessageID: message.ID,
-				BlockType: models.BlockTypeText,
-				Content:   block.Content,
-			})
+			s.messageBlockService.CreateTextBlock(messageID, block.Full)
+			fmt.Println("BlockTextEnd:", block.Full)
 		case agent.BlockToolCall:
-			s.saveBlockSeqIncrement(&models.MessageBlock{
-				MessageID: message.ID,
-				BlockType: models.BlockTypeToolUse,
-				ToolUseID: block.ToolID,
-				ToolName:  block.ToolName,
-				ToolInput: block.Content,
-			})
+			s.messageBlockService.CreateToolUseBlock(messageID, block.ToolID, block.ToolName, block.Payload)
+			fmt.Println("BlockToolCall:", block.ToolName, block.ToolID, block.Payload)
 		case agent.BlockToolResult:
-			s.saveBlockSeqIncrement(&models.MessageBlock{
-				MessageID: message.ID,
-				BlockType: models.BlockTypeToolResult,
-				ToolUseID: block.ToolID,
-				ToolName:  block.ToolName,
-				ToolInput: s.truncate(block.Content, 500),
-			})
+			s.messageBlockService.CreateToolResultBlock(messageID, block.ToolID, block.ToolName, s.truncate(block.Payload, 500), false)
+			fmt.Println("BlockToolResult:", block.ToolName, block.ToolID, block.Payload)
 		case agent.BlockFinish:
-			//更新message和conversation
-			message.Status = models.MessageStatusCompleted
-			message.InputTokens = block.InputTokens
-			message.OutputTokens = block.OutputTokens
-			s.messageService.repo.Update(message)
-			conversation.OutputTokens += block.OutputTokens
-			conversation.InputTokens += block.InputTokens
-			conversation.TotalTokens += block.InputTokens + block.OutputTokens
-			s.conversationService.repo.Update(conversation)
+			// Update message status and tokens
+			s.messageService.UpdateStatus(messageID, models.MessageStatusCompleted)
+			s.messageService.UpdateTokens(messageID, block.InputTokens, block.OutputTokens)
+			// Update conversation tokens
+			s.conversationService.IncrementTokenCount(conversationID, block.InputTokens, block.OutputTokens)
+			fmt.Printf("[DEBUG] BlockFinish: InputTokens=%d, OutputTokens=%d, TotalTokens=%d\n",
+				block.InputTokens, block.OutputTokens, block.TotalTokens)
 		case agent.BlockError:
-			s.saveBlockSeqIncrement(&models.MessageBlock{
-				MessageID: message.ID,
-				BlockType: models.BlockTypeText,
-				Content:   fmt.Sprintf("错误 #%d: %s", block.Iteration, block.Content),
-				IsError:   true,
-			})
-			message.Status = models.MessageStatusCompleted
-			s.messageService.repo.Update(message)
+			s.messageBlockService.CreateErrorTextBlock(messageID, fmt.Sprintf("错误 #%d: %s", block.Iteration, block.Full))
+			// Update message status to completed
+			s.messageService.UpdateStatus(messageID, models.MessageStatusCompleted)
+			fmt.Println("BlockError:", block.Iteration, block.Full)
 		}
 	}
 }
@@ -201,38 +164,6 @@ func (s *ChatService) buildProvider(ctx context.Context, modelConfig *models.Mod
 	}
 }
 
-func (s *ChatService) saveUserMessage(userInput string, conversationID string, modelName string) error {
-	userMsg := &models.Message{
-		ConversationID: conversationID,
-		Role:           "user",
-		ModelName:      modelName,
-	}
-	if err := s.messageService.repo.Create(userMsg); err != nil {
-		return err
-	}
-
-	// Save user text block
-	userBlock := &models.MessageBlock{
-		MessageID: userMsg.ID,
-		BlockType: "text",
-		Content:   userInput,
-	}
-	if err := s.messageBlockService.repo.Create(userBlock); err != nil {
-		return err
-	}
-	return nil
-}
-func (s *ChatService) saveBlockSeqIncrement(block *models.MessageBlock) error {
-	lastSeq, err := s.messageBlockService.repo.GetLastSequence(block.MessageID)
-	if err != nil {
-		return err
-	}
-	block.SequenceOrder = lastSeq + 1
-	if err := s.messageBlockService.repo.Create(block); err != nil {
-		return err
-	}
-	return nil
-}
 func (s *ChatService) truncate(c string, maxLen int) string {
 	if len(c) <= maxLen {
 		return c

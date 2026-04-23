@@ -107,8 +107,17 @@ export default function ModelFormDialog({
                 id="base_url"
                 value={formData.base_url}
                 onChange={(e) => onFormChange({ base_url: e.target.value })}
-                placeholder="https://api.openai.com/v1"
+                placeholder={
+                  formData.provider === "anthropic"
+                    ? "https://api.anthropic.com/v1/messages"
+                    : "https://api.openai.com/v1"
+                }
               />
+              {formData.provider === "anthropic" && (
+                <p className="text-xs text-muted-foreground">
+                  Anthropic 需要完整路径，以 /v1/messages 结尾
+                </p>
+              )}
             </div>
           </div>
 
