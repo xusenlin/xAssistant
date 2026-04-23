@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Bot, User, Loader2, AlertTriangle } from "lucide-react";
+import { Bot, User, Loader2, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -47,6 +47,7 @@ export default function ChatDetail() {
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const eventOffRef = useRef<(() => void) | null>(null);
+  const [expandedBlocks, setExpandedBlocks] = useState<Set<string>>(new Set());
 
   // Stream state
   const [streamState, setStreamState] = useState<StreamState>({
@@ -55,6 +56,18 @@ export default function ChatDetail() {
     current: null,
     isStreaming: false,
   });
+
+  const toggleBlock = (blockId: string) => {
+    setExpandedBlocks(prev => {
+      const next = new Set(prev);
+      if (next.has(blockId)) {
+        next.delete(blockId);
+      } else {
+        next.add(blockId);
+      }
+      return next;
+    });
+  };
 
   const loadConversation = async () => {
     if (!id) return;
@@ -415,18 +428,52 @@ export default function ChatDetail() {
                     )
                   )}
                   {block.block_type === "thinking" && (
-                    <div className="mt-2 rounded bg-yellow-100 p-2 text-xs text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200">
-                      <span className="mr-1">💭</span>
-                      {block.content}
+                    <div className="mt-2 rounded bg-yellow-100 text-xs text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200">
+                      <button
+                        onClick={() => toggleBlock(block.id)}
+                        className="flex w-full items-center gap-1 p-2 font-medium hover:bg-yellow-200/50 dark:hover:bg-yellow-800/30 rounded"
+                      >
+                        {expandedBlocks.has(block.id) ? (
+                          <ChevronDown className="h-3 w-3" />
+                        ) : (
+                          <ChevronRight className="h-3 w-3" />
+                        )}
+                        <span>💭</span>
+                        <span>Thinking</span>
+                        {!expandedBlocks.has(block.id) && block.content && (
+                          <span className="ml-auto text-yellow-600/70 truncate max-w-[200px]">
+                            {block.content.substring(0, 50)}...
+                          </span>
+                        )}
+                      </button>
+                      {expandedBlocks.has(block.id) && (
+                        <div className="px-2 pb-2 whitespace-pre-wrap">
+                          {block.content}
+                        </div>
+                      )}
                     </div>
                   )}
                   {block.block_type === "tool_use" && (
-                    <div className="mt-2 rounded bg-blue-100 p-2 text-xs text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
-                      <div className="flex items-center gap-1 font-medium">
-                        <span>🔧</span> {block.tool_name}
-                      </div>
-                      {block.tool_input && (
-                        <pre className="mt-1 overflow-x-auto whitespace-pre-wrap">
+                    <div className="mt-2 rounded bg-blue-100 text-xs text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
+                      <button
+                        onClick={() => toggleBlock(block.id)}
+                        className="flex w-full items-center gap-1 p-2 font-medium hover:bg-blue-200/50 dark:hover:bg-blue-800/30 rounded"
+                      >
+                        {expandedBlocks.has(block.id) ? (
+                          <ChevronDown className="h-3 w-3" />
+                        ) : (
+                          <ChevronRight className="h-3 w-3" />
+                        )}
+                        <span>🔧</span>
+                        <span>{block.tool_name}</span>
+                        {!expandedBlocks.has(block.id) && block.tool_input && (
+                          <span className="ml-auto text-blue-600/70 truncate max-w-[200px]">
+                            {block.tool_input.substring(0, 50)}...
+                          </span>
+                        )}
+                      </button>
+                      {expandedBlocks.has(block.id) && block.tool_input && (
+                        <pre className="px-2 pb-2 overflow-x-auto whitespace-pre-wrap">
                           {(() => {
                             try {
                               return JSON.stringify(JSON.parse(block.tool_input), null, 2);
@@ -439,21 +486,41 @@ export default function ChatDetail() {
                     </div>
                   )}
                   {block.block_type === "tool_result" && (
-                    <div className={`mt-2 rounded p-2 text-xs ${
+                    <div className={`mt-2 rounded text-xs ${
                       block.is_error
                         ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
                         : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
                     }`}>
-                      <div className="flex items-center gap-1 font-medium">
+                      <button
+                        onClick={() => toggleBlock(block.id)}
+                        className={`flex w-full items-center gap-1 p-2 font-medium rounded ${
+                          block.is_error
+                            ? "hover:bg-red-200/50 dark:hover:bg-red-800/30"
+                            : "hover:bg-green-200/50 dark:hover:bg-green-800/30"
+                        }`}
+                      >
+                        {expandedBlocks.has(block.id) ? (
+                          <ChevronDown className="h-3 w-3" />
+                        ) : (
+                          <ChevronRight className="h-3 w-3" />
+                        )}
                         {block.is_error ? (
                           <AlertTriangle className="h-3 w-3" />
                         ) : (
                           <span>📦</span>
-                        )} Result
-                      </div>
-                      <pre className="mt-1 overflow-x-auto whitespace-pre-wrap">
-                        {block.tool_result}
-                      </pre>
+                        )}
+                        <span>Result</span>
+                        {!expandedBlocks.has(block.id) && block.tool_result && (
+                          <span className="ml-auto opacity-70 truncate max-w-[200px]">
+                            {block.tool_result.substring(0, 50)}...
+                          </span>
+                        )}
+                      </button>
+                      {expandedBlocks.has(block.id) && (
+                        <pre className="px-2 pb-2 overflow-x-auto whitespace-pre-wrap">
+                          {block.tool_result}
+                        </pre>
+                      )}
                     </div>
                   )}
                 </div>

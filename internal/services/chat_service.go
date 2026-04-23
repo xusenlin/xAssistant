@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 	"xAssistant/internal/models"
 
@@ -149,6 +150,7 @@ func (s *ChatService) runStreamingInBackground(conversationID, messageID string,
 
 	// Process stream events
 	for block := range streamCh {
+		log.Printf("[CHAT] Block type=%s, delta=%q\n", block.Type, block.Delta)
 		switch block.Type {
 		case agent.BlockThinkStart:
 			s.emitStreamEvent(messageID, StreamEvent{Type: "block_start", BlockType: "thinking"})
