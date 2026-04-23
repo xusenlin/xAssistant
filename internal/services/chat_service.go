@@ -19,6 +19,8 @@ type ChatService struct {
 	messageService      *MessageService
 	messageBlockService *MessageBlockService
 	modelService        *ModelService
+	app                 *application.App
+	streamManager       *StreamManager
 }
 
 func NewChatService(
@@ -32,12 +34,27 @@ func NewChatService(
 		messageService:      messageService,
 		messageBlockService: messageBlockService,
 		modelService:        modelService,
+		streamManager:       NewStreamManager(),
 	}
 }
 
 // ServiceStartup is called when the service is registered
 func (s *ChatService) ServiceStartup(ctx context.Context, options application.ServiceOptions) error {
+	s.app = application.Get()
 	return nil
+}
+
+// Subscribe returns the current stream buffer for a message
+func (s *ChatService) Subscribe(messageID string) (*StreamSnapshot, error) {
+	return s.streamManager.GetSnapshot(messageID)
+}
+
+// emitStreamEvent sends a stream event to the frontend
+func (s *ChatService) emitStreamEvent(messageID string, event StreamEvent) {
+	if s.app == nil {
+		return
+	}
+	s.app.Event.Emit(fmt.Sprintf("chat:stream:%s", messageID), event)
 }
 
 // SendMessageStream sends a message with streaming output
@@ -73,7 +90,9 @@ func (s *ChatService) SendMessageStream(conversationID, userInput, modelID strin
 	if err != nil {
 		return "", err
 	}
-	fmt.Println("[DUBUG]agentMsg:", agentMsg)
+
+	// Create stream buffer
+	s.streamManager.Create(agentMsg.ID)
 
 	go s.runStreamingInBackground(conversationID, agentMsg.ID, modelConfig, apiKey, userInput)
 
@@ -81,72 +100,126 @@ func (s *ChatService) SendMessageStream(conversationID, userInput, modelID strin
 }
 
 func (s *ChatService) runStreamingInBackground(conversationID, messageID string, modelConfig *models.Model, apiKey, userInput string) {
+	// Cleanup buffer when done
+	defer s.streamManager.Delete(messageID)
+
 	// Run with streaming
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	// Build provider
-	fmt.Println("[DEBUG]modelConfig:", modelConfig.ID, modelConfig.Name, modelConfig.Provider, modelConfig.ModelID, modelConfig.BaseURL)
 	p, err := s.buildProvider(ctx, modelConfig, apiKey)
 	if err != nil {
-		//TODO 错误推送
-		fmt.Println("Error-117:", err)
-
+		s.emitStreamEvent(messageID, StreamEvent{Type: "error", Error: err.Error()})
+		s.messageService.UpdateStatus(messageID, models.MessageStatusFailed)
 		return
 	}
 
 	// Create agent with builder pattern
+	// Enable thinking mode by default for supported models
+	thinkingLevel := provider.ThinkingLevelMedium
 	a, err := agent.New().
 		WithProvider(p).
 		WithModel(modelConfig.ModelID).
 		WithSystemPrompt("You are a helpful assistant.").
+		WithThinkingLevel(thinkingLevel).
 		Build()
-
-	fmt.Println("[DEBUG]a:", a)
 	if err != nil {
-		//TODO 错误推送
-		fmt.Println("Error-128:", err)
-
+		s.emitStreamEvent(messageID, StreamEvent{Type: "error", Error: err.Error()})
+		s.messageService.UpdateStatus(messageID, models.MessageStatusFailed)
 		return
 	}
 	defer a.Close()
 
 	streamCh, err := a.RunStream(ctx, userInput)
 	if err != nil {
-		//TODO 错误推送
-		fmt.Println("Error-136:", err)
+		s.emitStreamEvent(messageID, StreamEvent{Type: "error", Error: err.Error()})
+		s.messageService.UpdateStatus(messageID, models.MessageStatusFailed)
 		return
 	}
 	s.messageService.UpdateStatus(messageID, models.MessageStatusStreaming)
 
+	// Get stream buffer
+	buffer, exists := s.streamManager.Get(messageID)
+	if !exists {
+		s.emitStreamEvent(messageID, StreamEvent{Type: "error", Error: "stream buffer not found"})
+		s.messageService.UpdateStatus(messageID, models.MessageStatusFailed)
+		return
+	}
+
 	// Process stream events
 	for block := range streamCh {
 		switch block.Type {
+		case agent.BlockThinkStart:
+			s.emitStreamEvent(messageID, StreamEvent{Type: "block_start", BlockType: "thinking"})
+
+		case agent.BlockThinkStream:
+			buffer.AppendDelta("thinking", block.Delta)
+			s.emitStreamEvent(messageID, StreamEvent{
+				Type:      "delta",
+				BlockType: "thinking",
+				Delta:     block.Delta,
+				Content:   buffer.Current.Content,
+			})
+
 		case agent.BlockThinkEnd:
+			buffer.FinishBlock("thinking", block.Full)
 			s.messageBlockService.CreateThinkingBlock(messageID, block.Full)
-			fmt.Println("BlockThinkEnd:", block.Full)
+			s.emitStreamEvent(messageID, StreamEvent{
+				Type:      "block_end",
+				BlockType: "thinking",
+				Content:   block.Full,
+			})
+
+		case agent.BlockTextStart:
+			s.emitStreamEvent(messageID, StreamEvent{Type: "block_start", BlockType: "text"})
+
+		case agent.BlockTextStream:
+			buffer.AppendDelta("text", block.Delta)
+			s.emitStreamEvent(messageID, StreamEvent{
+				Type:      "delta",
+				BlockType: "text",
+				Delta:     block.Delta,
+				Content:   buffer.Current.Content,
+			})
+
 		case agent.BlockTextEnd:
+			buffer.FinishBlock("text", block.Full)
 			s.messageBlockService.CreateTextBlock(messageID, block.Full)
-			fmt.Println("BlockTextEnd:", block.Full)
+			s.emitStreamEvent(messageID, StreamEvent{
+				Type:      "block_end",
+				BlockType: "text",
+				Content:   block.Full,
+			})
+
 		case agent.BlockToolCall:
+			buffer.FinishToolBlock("tool_use", block.ToolID, block.ToolName, block.Payload, false)
 			s.messageBlockService.CreateToolUseBlock(messageID, block.ToolID, block.ToolName, block.Payload)
-			fmt.Println("BlockToolCall:", block.ToolName, block.ToolID, block.Payload)
+			s.emitStreamEvent(messageID, StreamEvent{
+				Type:      "block_end",
+				BlockType: "tool_use",
+				Content:   block.Payload,
+			})
+
 		case agent.BlockToolResult:
+			buffer.FinishToolBlock("tool_result", block.ToolID, block.ToolName, s.truncate(block.Payload, 500), false)
 			s.messageBlockService.CreateToolResultBlock(messageID, block.ToolID, block.ToolName, s.truncate(block.Payload, 500), false)
-			fmt.Println("BlockToolResult:", block.ToolName, block.ToolID, block.Payload)
+			s.emitStreamEvent(messageID, StreamEvent{
+				Type:      "block_end",
+				BlockType: "tool_result",
+				Content:   block.Payload,
+			})
+
 		case agent.BlockFinish:
-			// Update message status and tokens
 			s.messageService.UpdateStatus(messageID, models.MessageStatusCompleted)
 			s.messageService.UpdateTokens(messageID, block.InputTokens, block.OutputTokens)
-			// Update conversation tokens
 			s.conversationService.IncrementTokenCount(conversationID, block.InputTokens, block.OutputTokens)
-			fmt.Printf("[DEBUG] BlockFinish: InputTokens=%d, OutputTokens=%d, TotalTokens=%d\n",
-				block.InputTokens, block.OutputTokens, block.TotalTokens)
+			s.emitStreamEvent(messageID, StreamEvent{Type: "complete"})
+
 		case agent.BlockError:
 			s.messageBlockService.CreateErrorTextBlock(messageID, fmt.Sprintf("错误 #%d: %s", block.Iteration, block.Full))
-			// Update message status to completed
 			s.messageService.UpdateStatus(messageID, models.MessageStatusCompleted)
-			fmt.Println("BlockError:", block.Iteration, block.Full)
+			s.emitStreamEvent(messageID, StreamEvent{Type: "error", Error: block.Full})
 		}
 	}
 }

@@ -70,6 +70,7 @@ export default function Dashboard() {
               <div className="rounded-lg bg-muted p-2">Secure storage</div>
               <div className="rounded-lg bg-muted p-2">Chat history</div>
               <div className="rounded-lg bg-muted p-2">Cron jobs</div>
+              <div className="rounded-lg bg-muted p-2 col-span-2">Multi-conversation streaming</div>
             </div>
           </CardContent>
         </Card>

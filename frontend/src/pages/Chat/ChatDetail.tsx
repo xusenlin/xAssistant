@@ -7,7 +7,37 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatInput from "@/components/Chat/ChatInput";
 import { Conversation, Message, MessageBlock } from "@/../bindings/xAssistant/internal/models";
 import { ConversationService, MessageService, MessageBlockService, ChatService } from "@/../bindings/xAssistant/internal/services";
+import { Events } from "@wailsio/runtime";
 
+// Stream block data from Go
+interface StreamBlockData {
+  id?: string;
+  message_id?: string;
+  block_type: string;
+  content: string;
+  tool_use_id?: string;
+  tool_name?: string;
+  tool_input?: string;
+  tool_result?: string;
+  is_error?: boolean;
+}
+
+// Stream event from Go
+interface StreamEvent {
+  type: "block_start" | "delta" | "block_end" | "complete" | "error";
+  block_type?: string;
+  delta?: string;
+  content?: string;
+  error?: string;
+}
+
+// Stream state for a message
+interface StreamState {
+  messageID: string | null;
+  blocks: StreamBlockData[];
+  current: StreamBlockData | null;
+  isStreaming: boolean;
+}
 
 export default function ChatDetail() {
   const { id } = useParams<{ id: string }>();
@@ -16,6 +46,15 @@ export default function ChatDetail() {
   const [messageBlocks, setMessageBlocks] = useState<Record<string, MessageBlock[]>>({});
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const eventOffRef = useRef<(() => void) | null>(null);
+
+  // Stream state
+  const [streamState, setStreamState] = useState<StreamState>({
+    messageID: null,
+    blocks: [],
+    current: null,
+    isStreaming: false,
+  });
 
   const loadConversation = async () => {
     if (!id) return;
@@ -33,49 +72,173 @@ export default function ChatDetail() {
       const msgs = await MessageService.GetByConversationID(id);
       const filteredMsgs = (msgs || []).filter((m): m is Message => m !== null);
 
-      // Load blocks for each message
+      // Load blocks for each message (skip streaming messages)
       const blocksMap: Record<string, MessageBlock[]> = {};
       for (const msg of filteredMsgs) {
-        if (msg) {
+        if (msg && msg.status === "completed") {
           const blocks = await MessageBlockService.GetByMessageID(msg.id);
           const filteredBlocks = (blocks || []).filter((b): b is MessageBlock => b !== null);
           blocksMap[msg.id] = filteredBlocks;
         }
       }
 
-      // Filter out messages without blocks (legacy data)
-      const validMessages = filteredMsgs.filter(m => blocksMap[m.id]?.length > 0);
-      setMessages(validMessages);
+      setMessages(filteredMsgs);
       setMessageBlocks(blocksMap);
+
+      // Check for unfinished streaming messages
+      const lastMsg = filteredMsgs[filteredMsgs.length - 1];
+      if (lastMsg && lastMsg.status !== "completed" && lastMsg.status !== "failed") {
+        subscribeToStream(lastMsg.id);
+      }
     } catch (error) {
       console.error("Failed to load messages:", error);
     }
   };
 
-  // Set up stream event listeners
+  // Subscribe to a message stream
+  const subscribeToStream = async (messageID: string) => {
+    // Unsubscribe from previous stream if any
+    unsubscribeFromStream();
 
+    try {
+      // Get current buffer from Go
+      const snapshot = await ChatService.Subscribe(messageID);
 
+      // Set initial state from buffer
+      setStreamState({
+        messageID: messageID,
+        blocks: snapshot?.blocks || [],
+        current: snapshot?.current || null,
+        isStreaming: true,
+      });
+
+      // Listen for stream events
+      const eventName = `chat:stream:${messageID}`;
+      Events.On(eventName, handleStreamEvent);
+      eventOffRef.current = () => Events.Off(eventName);
+    } catch (error) {
+      console.error("Failed to subscribe to stream:", error);
+      // No active stream, just load messages normally
+      setStreamState({
+        messageID: null,
+        blocks: [],
+        current: null,
+        isStreaming: false,
+      });
+    }
+  };
+
+  // Unsubscribe from current stream
+  const unsubscribeFromStream = () => {
+    if (eventOffRef.current) {
+      eventOffRef.current();
+      eventOffRef.current = null;
+    }
+    setStreamState({
+      messageID: null,
+      blocks: [],
+      current: null,
+      isStreaming: false,
+    });
+  };
+
+  // Handle stream events from Go
+  const handleStreamEvent = useCallback((event: { data: StreamEvent }) => {
+    const data = event.data;
+
+    setStreamState((prev) => {
+      switch (data.type) {
+        case "block_start":
+          // New block starting
+          return {
+            ...prev,
+            current: {
+              block_type: data.block_type || "text",
+              content: "",
+            },
+          };
+
+        case "delta":
+          // Update current block with delta
+          if (prev.current && prev.current.block_type === data.block_type) {
+            return {
+              ...prev,
+              current: {
+                ...prev.current,
+                content: data.content || prev.current.content + (data.delta || ""),
+              },
+            };
+          }
+          return prev;
+
+        case "block_end":
+          // Block completed, move to blocks list
+          return {
+            ...prev,
+            blocks: [
+              ...prev.blocks,
+              {
+                block_type: data.block_type || "text",
+                content: data.content || "",
+              },
+            ],
+            current: null,
+          };
+
+        case "complete":
+          // Stream completed
+          setTimeout(() => {
+            unsubscribeFromStream();
+            loadMessages();
+            setSending(false);
+          }, 0);
+          return prev;
+
+        case "error":
+          // Stream error
+          console.error("Stream error:", data.error);
+          setTimeout(() => {
+            unsubscribeFromStream();
+            loadMessages();
+            setSending(false);
+          }, 0);
+          return prev;
+
+        default:
+          return prev;
+      }
+    });
+  }, []);
+
+  // Clean up on unmount or conversation change
+  useEffect(() => {
+    return () => {
+      unsubscribeFromStream();
+    };
+  }, []);
 
   useEffect(() => {
+    unsubscribeFromStream();
     loadConversation();
     loadMessages();
   }, [id]);
 
-  // useEffect(() => {
-  //   scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  // }, [messages, streamState.content]);
+  // Auto scroll to bottom
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, streamState.blocks, streamState.current]);
 
   const handleSend = useCallback((message: string, modelId: string) => {
     if (!id || sending) return;
 
     setSending(true);
 
-
     ChatService.SendMessageStream(id, message, modelId)
       .then(async (messageID) => {
-        // Start with empty content, will be updated by events
-        console.log("Sending message:", messageID);
-        // Add placeholder message to UI
+        console.log("Message sent:", messageID);
+        // Subscribe to the stream
+        await subscribeToStream(messageID);
+        // Reload messages to show the new user message
         await loadMessages();
       })
       .catch(async (error) => {
@@ -85,9 +248,131 @@ export default function ChatDetail() {
       });
   }, [id, sending]);
 
+  // Render a streaming message
+  const renderStreamingMessage = () => {
+    if (!streamState.isStreaming || !streamState.messageID) return null;
+
+    const streamingMsg = messages.find((m) => m.id === streamState.messageID);
+    if (!streamingMsg) return null;
+
+    return (
+      <div className="flex gap-3">
+        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-muted">
+          <Bot className="h-4 w-4" />
+        </div>
+
+        <div className="flex flex-col gap-1 items-start max-w-[70%]">
+          <div className="rounded-lg px-4 py-2 bg-muted">
+            {/* Completed blocks */}
+            {streamState.blocks.map((block, index) => (
+              <div key={index} className="text-sm">
+                {renderStreamBlock(block)}
+              </div>
+            ))}
+
+            {/* Current streaming block with cursor */}
+            {streamState.current && (
+              <div className="text-sm">
+                {renderStreamBlock(streamState.current, true)}
+              </div>
+            )}
+
+            {/* Loading indicator if no content yet */}
+            {streamState.blocks.length === 0 && !streamState.current && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Thinking...</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            {streamingMsg.model_name && (
+              <span className="font-medium">{streamingMsg.model_name}</span>
+            )}
+            <span className="animate-pulse">Streaming...</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Render a stream block
+  const renderStreamBlock = (block: StreamBlockData, showCursor = false) => {
+    switch (block.block_type) {
+      case "thinking":
+        return (
+          <div className="mt-2 rounded bg-yellow-100 p-2 text-xs text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200">
+            <span className="mr-1">💭</span>
+            {block.content}
+            {showCursor && <span className="animate-pulse">|</span>}
+          </div>
+        );
+
+      case "text":
+        return (
+          <div className="mt-2 prose prose-sm max-w-none dark:prose-invert">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {block.content || " "}
+            </ReactMarkdown>
+            {showCursor && <span className="animate-pulse">|</span>}
+          </div>
+        );
+
+      case "tool_use":
+        return (
+          <div className="mt-2 rounded bg-blue-100 p-2 text-xs text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
+            <div className="flex items-center gap-1 font-medium">
+              <span>🔧</span> {block.tool_name || "Tool"}
+            </div>
+            {block.content && (
+              <pre className="mt-1 overflow-x-auto whitespace-pre-wrap">
+                {(() => {
+                  try {
+                    return JSON.stringify(JSON.parse(block.content), null, 2);
+                  } catch {
+                    return block.content;
+                  }
+                })()}
+              </pre>
+            )}
+          </div>
+        );
+
+      case "tool_result":
+        return (
+          <div className={`mt-2 rounded p-2 text-xs ${
+            block.is_error
+              ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
+              : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
+          }`}>
+            <div className="flex items-center gap-1 font-medium">
+              {block.is_error ? (
+                <AlertTriangle className="h-3 w-3" />
+              ) : (
+                <span>📦</span>
+              )} Result
+            </div>
+            <pre className="mt-1 overflow-x-auto whitespace-pre-wrap">
+              {block.content}
+            </pre>
+          </div>
+        );
+
+      default:
+        return <span>{block.content}</span>;
+    }
+  };
+
   const renderMessage = (message: Message) => {
     const isUser = message.role === "user";
-    const blocks = (messageBlocks[message.id] || [])
+
+    // If this is the streaming message, render streaming version
+    if (message.id === streamState.messageID && streamState.isStreaming) {
+      return renderStreamingMessage();
+    }
+
+    const blocks = messageBlocks[message.id] || [];
 
     return (
       <div
@@ -105,7 +390,9 @@ export default function ChatDetail() {
             isUser ? "bg-primary/10 text-primary-foreground" : "bg-muted"
           }`}>
             {blocks.length === 0 ? (
-              <p className="text-sm">No content</p>
+              <p className="text-sm text-muted-foreground">
+                {message.status === "failed" ? "Stream failed" : "No content"}
+              </p>
             ) : (
               blocks.map((block) => (
                 <div key={block.id} className="text-sm">

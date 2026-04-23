@@ -28,11 +28,17 @@ func (s *MessageService) Create(conversationID, role, modelName string) (*models
 		return nil, err
 	}
 
+	// User messages are immediately completed, assistant messages start as pending
+	status := models.MessageStatusPending
+	if role == "user" {
+		status = models.MessageStatusCompleted
+	}
+
 	m := &models.Message{
 		ConversationID: conversationID,
 		Role:           role,
 		ModelName:      modelName,
-		Status:         models.MessageStatusPending,
+		Status:         status,
 		SequenceOrder:  seq + 1,
 	}
 	if err := s.repo.Create(m); err != nil {

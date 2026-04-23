@@ -7,6 +7,7 @@ const (
 	MessageStatusPending   = "pending"   // 消息已创建，等待处理
 	MessageStatusStreaming = "streaming" // 流式传输中
 	MessageStatusCompleted = "completed" // 处理完成
+	MessageStatusFailed    = "failed"    // 流式失败/中断
 )
 
 type Message struct {
