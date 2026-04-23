@@ -118,6 +118,14 @@ func (s *ChatService) runStreamingInBackground(conversationID, messageID string,
 		return
 	}
 
+	// Build conversation history from database
+	history, err := s.buildConversationHistory(conversationID, messageID)
+	if err != nil {
+		log.Printf("[CHAT] Failed to build conversation history: %v\n", err)
+		// Continue without history if there's an error
+		history = nil
+	}
+
 	// Create agent with builder pattern
 	builder := agent.New().
 		WithProvider(p).
@@ -125,6 +133,9 @@ func (s *ChatService) runStreamingInBackground(conversationID, messageID string,
 		WithSystemPrompt("You are a helpful assistant.")
 	if thinkingLevel != "" {
 		builder = builder.WithThinkingLevel(thinkingLevel)
+	}
+	if len(history) > 0 {
+		builder = builder.WithHistory(history)
 	}
 	a, err := builder.Build()
 	if err != nil {
@@ -226,6 +237,84 @@ func (s *ChatService) runStreamingInBackground(conversationID, messageID string,
 			s.emitStreamEvent(messageID, StreamEvent{Type: "error", Error: block.Full})
 		}
 	}
+}
+
+// buildConversationHistory retrieves all messages from the database and converts them to provider.Message format
+func (s *ChatService) buildConversationHistory(conversationID, excludeMessageID string) ([]provider.Message, error) {
+	// Get all messages for this conversation
+	messages, err := s.messageService.GetByConversationID(conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get messages: %w", err)
+	}
+
+	var history []provider.Message
+	for _, msg := range messages {
+		// Skip the message we're currently generating (excludeMessageID is the assistant message)
+		// Also skip any pending/streaming messages
+		if msg.ID == excludeMessageID || msg.Status == models.MessageStatusPending || msg.Status == models.MessageStatusStreaming {
+			continue
+		}
+
+		// Only include completed messages
+		if msg.Status != models.MessageStatusCompleted {
+			continue
+		}
+
+		// Get message blocks
+		blocks, err := s.messageBlockService.GetByMessageID(msg.ID)
+		if err != nil {
+			log.Printf("[CHAT] Failed to get blocks for message %s: %v\n", msg.ID, err)
+			continue
+		}
+
+		// Convert blocks to provider.Message
+		providerMsg := s.convertBlocksToProviderMessage(msg.Role, blocks)
+		if providerMsg != nil {
+			history = append(history, *providerMsg)
+		}
+	}
+
+	return history, nil
+}
+
+// convertBlocksToProviderMessage converts message blocks to a provider.Message
+func (s *ChatService) convertBlocksToProviderMessage(role string, blocks []*models.MessageBlock) *provider.Message {
+	if len(blocks) == 0 {
+		return nil
+	}
+
+	msg := &provider.Message{
+		Role: provider.Role(role),
+	}
+
+	var textContent string
+	var toolCalls []provider.ToolCall
+	var toolResults []provider.ToolResult
+
+	for _, block := range blocks {
+		switch block.BlockType {
+		case models.BlockTypeText:
+			textContent += block.Content
+		case models.BlockTypeToolUse:
+			toolCalls = append(toolCalls, provider.ToolCall{
+				ID:    block.ToolUseID,
+				Name:  block.ToolName,
+				Input: json.RawMessage(block.ToolInput),
+			})
+		case models.BlockTypeToolResult:
+			toolResults = append(toolResults, provider.ToolResult{
+				ToolCallID: block.ToolUseID,
+				Content:    block.ToolResult,
+				IsError:    block.IsError,
+			})
+		}
+	}
+
+	msg.Content = textContent
+	msg.ToolCalls = toolCalls
+	msg.ToolResults = toolResults
+
+	return msg
 }
 
 func (s *ChatService) buildProvider(ctx context.Context, modelConfig *models.Model, apiKey string) (provider.Provider, error) {
