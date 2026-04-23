@@ -59,7 +59,7 @@ export default function Chat() {
 
   const renderChatArea = () => {
     if (id) {
-      return <ChatDetail />;
+      return <ChatDetail onConversationUpdate={loadConversations} />;
     }
 
     return (

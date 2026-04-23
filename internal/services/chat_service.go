@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -59,7 +60,8 @@ func (s *ChatService) emitStreamEvent(messageID string, event StreamEvent) {
 }
 
 // SendMessageStream sends a message with streaming output
-func (s *ChatService) SendMessageStream(conversationID, userInput, modelID string) (string, error) {
+// thinkingLevel: "" (no thinking), "low", "medium", "high"
+func (s *ChatService) SendMessageStream(conversationID, userInput, modelID, thinkingLevel string) (string, error) {
 	// Get model config
 	modelConfig, err := s.modelService.GetByID(modelID)
 	if err != nil {
@@ -95,12 +97,12 @@ func (s *ChatService) SendMessageStream(conversationID, userInput, modelID strin
 	// Create stream buffer
 	s.streamManager.Create(agentMsg.ID)
 
-	go s.runStreamingInBackground(conversationID, agentMsg.ID, modelConfig, apiKey, userInput)
+	go s.runStreamingInBackground(conversationID, agentMsg.ID, modelConfig, apiKey, userInput, provider.ThinkingLevel(thinkingLevel))
 
 	return agentMsg.ID, nil
 }
 
-func (s *ChatService) runStreamingInBackground(conversationID, messageID string, modelConfig *models.Model, apiKey, userInput string) {
+func (s *ChatService) runStreamingInBackground(conversationID, messageID string, modelConfig *models.Model, apiKey, userInput string, thinkingLevel provider.ThinkingLevel) {
 	// Cleanup buffer when done
 	defer s.streamManager.Delete(messageID)
 
@@ -117,14 +119,14 @@ func (s *ChatService) runStreamingInBackground(conversationID, messageID string,
 	}
 
 	// Create agent with builder pattern
-	// Enable thinking mode by default for supported models
-	thinkingLevel := provider.ThinkingLevelMedium
-	a, err := agent.New().
+	builder := agent.New().
 		WithProvider(p).
 		WithModel(modelConfig.ModelID).
-		WithSystemPrompt("You are a helpful assistant.").
-		WithThinkingLevel(thinkingLevel).
-		Build()
+		WithSystemPrompt("You are a helpful assistant.")
+	if thinkingLevel != "" {
+		builder = builder.WithThinkingLevel(thinkingLevel)
+	}
+	a, err := builder.Build()
 	if err != nil {
 		s.emitStreamEvent(messageID, StreamEvent{Type: "error", Error: err.Error()})
 		s.messageService.UpdateStatus(messageID, models.MessageStatusFailed)
@@ -229,7 +231,12 @@ func (s *ChatService) runStreamingInBackground(conversationID, messageID string,
 func (s *ChatService) buildProvider(ctx context.Context, modelConfig *models.Model, apiKey string) (provider.Provider, error) {
 	switch modelConfig.Provider {
 	case "openai":
-		return openai.New(apiKey, nil, openai.WithBaseURL(modelConfig.BaseURL)), nil
+		opts := []openai.Option{openai.WithBaseURL(modelConfig.BaseURL)}
+		// Check metadata for reasoning_effort support (default: true for backward compatibility)
+		if s.getMetadataBool(modelConfig.Metadata, "reasoning_effort", true) {
+			opts = append(opts, openai.WithReasoningEffort(true))
+		}
+		return openai.New(apiKey, nil, opts...), nil
 	case "anthropic":
 		return anthropic.New(apiKey, nil, anthropic.WithBaseURL(modelConfig.BaseURL)), nil
 	case "gemini":
@@ -239,9 +246,141 @@ func (s *ChatService) buildProvider(ctx context.Context, modelConfig *models.Mod
 	}
 }
 
+func (s *ChatService) getMetadataBool(metadata string, key string, defaultVal bool) bool {
+	if metadata == "" {
+		return defaultVal
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(metadata), &m); err != nil {
+		return defaultVal
+	}
+	if v, ok := m[key]; ok {
+		if b, ok := v.(bool); ok {
+			return b
+		}
+	}
+	return defaultVal
+}
+
 func (s *ChatService) truncate(c string, maxLen int) string {
 	if len(c) <= maxLen {
 		return c
 	}
 	return c[:maxLen] + "..."
+}
+
+// GenerateTitle generates a title for a conversation based on its messages
+func (s *ChatService) GenerateTitle(conversationID string) (string, error) {
+	log.Printf("[GenerateTitle] Called for conversationID: %s\n", conversationID)
+
+	// Get conversation to find the model
+	conv, err := s.conversationService.GetByID(conversationID)
+	if err != nil {
+		log.Printf("[GenerateTitle] Error getting conversation: %v\n", err)
+		return "", err
+	}
+	log.Printf("[GenerateTitle] Conversation title: %s, modelID: %s\n", conv.Title, conv.ModelID)
+
+	// Get messages
+	msgs, err := s.messageService.GetByConversationID(conversationID)
+	if err != nil {
+		log.Printf("[GenerateTitle] Error getting messages: %v\n", err)
+		return "", err
+	}
+	log.Printf("[GenerateTitle] Found %d messages\n", len(msgs))
+
+	// Build a summary of the conversation
+	var summary string
+	for _, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+		blocks, err := s.messageBlockService.GetByMessageID(msg.ID)
+		if err != nil {
+			log.Printf("[GenerateTitle] Error getting blocks for message %s: %v\n", msg.ID, err)
+			continue
+		}
+		for _, block := range blocks {
+			if block != nil && (block.BlockType == "text" || block.BlockType == "user_input") {
+				summary += block.Content + "\n"
+			}
+		}
+		if len(summary) > 500 {
+			break
+		}
+	}
+
+	log.Printf("[GenerateTitle] Summary length: %d\n", len(summary))
+	if summary == "" {
+		log.Printf("[GenerateTitle] Empty summary, returning 'New Chat'\n")
+		return "New Chat", nil
+	}
+
+	// Use default model to generate title
+	modelID := conv.ModelID
+	if modelID == "" {
+		// Get first available model
+		models, err := s.modelService.GetAll()
+		if err != nil || len(models) == 0 {
+			log.Printf("[GenerateTitle] No models available\n")
+			return "New Chat", nil
+		}
+		modelID = models[0].ID
+	}
+
+	modelConfig, err := s.modelService.GetByID(modelID)
+	if err != nil {
+		log.Printf("[GenerateTitle] Error getting model config: %v\n", err)
+		return "New Chat", nil
+	}
+
+	apiKey, err := s.modelService.GetDecryptedAPIKey(modelID)
+	if err != nil {
+		log.Printf("[GenerateTitle] Error getting API key: %v\n", err)
+		return "New Chat", nil
+	}
+
+	// Build provider
+	p, err := s.buildProvider(context.Background(), modelConfig, apiKey)
+	if err != nil {
+		log.Printf("[GenerateTitle] Error building provider: %v\n", err)
+		return "New Chat", nil
+	}
+
+	// Create agent for title generation
+	a, err := agent.New().
+		WithProvider(p).
+		WithModel(modelConfig.ModelID).
+		WithSystemPrompt("You are a helpful assistant. Generate a short title (max 50 chars) for the given conversation. Return ONLY the title, no quotes or extra text.").
+		WithMaxIter(1).
+		Build()
+	if err != nil {
+		log.Printf("[GenerateTitle] Error building agent: %v\n", err)
+		return "New Chat", nil
+	}
+	defer a.Close()
+
+	// Run to generate title
+	prompt := fmt.Sprintf("Generate a title for this conversation:\n%s", s.truncate(summary, 500))
+	log.Printf("[GenerateTitle] Running agent with prompt length: %d\n", len(prompt))
+	result, err := a.Run(context.Background(), prompt)
+	if err != nil {
+		log.Printf("[GenerateTitle] Error running agent: %v\n", err)
+		return "New Chat", nil
+	}
+
+	title := result.Output
+	log.Printf("[GenerateTitle] Generated title: %s\n", title)
+	if title == "" {
+		return "New Chat", nil
+	}
+
+	// Update conversation title
+	if err := s.conversationService.UpdateTitle(conversationID, title); err != nil {
+		log.Printf("[GenerateTitle] Error updating title: %v\n", err)
+		return "", err
+	}
+
+	log.Printf("[GenerateTitle] Title updated successfully\n")
+	return title, nil
 }
