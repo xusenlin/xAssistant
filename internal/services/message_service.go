@@ -32,6 +32,7 @@ func (s *MessageService) Create(conversationID, role, modelName string) (*models
 		ConversationID: conversationID,
 		Role:           role,
 		ModelName:      modelName,
+		Status:         models.MessageStatusPending,
 		SequenceOrder:  seq + 1,
 	}
 	if err := s.repo.Create(m); err != nil {

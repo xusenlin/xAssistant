@@ -3,22 +3,23 @@ package services
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
-
-	"xAssistant/internal/dao"
 	"xAssistant/internal/models"
 
-	"github.com/nlpodyssey/openai-agents-go/agents"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/xusenlin/go-agent/agent"
+	"github.com/xusenlin/go-agent/provider"
+	"github.com/xusenlin/go-agent/provider/anthropic"
+	"github.com/xusenlin/go-agent/provider/google"
+	"github.com/xusenlin/go-agent/provider/openai"
 )
 
 type ChatService struct {
-	conversationRepo *dao.ConversationDAO
-	messageRepo     *dao.MessageDAO
-	messageBlockRepo *dao.MessageBlockDAO
-	modelService   ModelGetter
-	app           *application.App
+	conversationService *ConversationService
+	messageService      *MessageService
+	messageBlockService *MessageBlockService
+	modelService        *ModelService
+	app                 *application.App
 }
 
 type ModelGetter interface {
@@ -27,16 +28,16 @@ type ModelGetter interface {
 }
 
 func NewChatService(
-	conversationRepo *dao.ConversationDAO,
-	messageRepo *dao.MessageDAO,
-	messageBlockRepo *dao.MessageBlockDAO,
-	modelService ModelGetter,
+	conversationService *ConversationService,
+	messageService *MessageService,
+	messageBlockService *MessageBlockService,
+	modelService *ModelService,
 ) *ChatService {
 	return &ChatService{
-		conversationRepo: conversationRepo,
-		messageRepo:      messageRepo,
-		messageBlockRepo: messageBlockRepo,
-		modelService:     modelService,
+		conversationService: conversationService,
+		messageService:      messageService,
+		messageBlockService: messageBlockService,
+		modelService:        modelService,
 	}
 }
 
@@ -58,7 +59,7 @@ func (s *ChatService) emit(name string, data ...any) {
 // SendMessageStream sends a message with streaming output
 func (s *ChatService) SendMessageStream(conversationID, userInput, modelID string) (string, error) {
 	// Get conversation
-	conversation, err := s.conversationRepo.GetByID(conversationID)
+	conversation, err := s.conversationService.GetByID(conversationID)
 	if err != nil {
 		return "", err
 	}
@@ -75,14 +76,139 @@ func (s *ChatService) SendMessageStream(conversationID, userInput, modelID strin
 		return "", err
 	}
 
-	// Create user message
+	if err := s.saveUserMessage(conversationID, userInput, modelConfig.Name); err != nil {
+		return "", err
+	}
+
+	// Update conversation
+	conversation.MessageCount++
+	if err := s.conversationService.repo.Update(conversation); err != nil {
+		return "", err
+	}
+
+	// Create assistant message
+
+	agentMsg, err := s.messageService.Create(conversationID, "assistant", modelConfig.Name)
+	if err != nil {
+		return "", err
+	}
+
+	// Run streaming in background
+	go s.runStreamingInBackground(conversation, agentMsg, modelConfig, apiKey, userInput)
+
+	return agentMsg.ID, nil
+}
+
+func (s *ChatService) runStreamingInBackground(conversation *models.Conversation, message *models.Message, modelConfig *models.Model, apiKey, userInput string) {
+	// Run with streaming
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	// Build provider
+	p, err := s.buildProvider(ctx, modelConfig, apiKey)
+	if err != nil {
+		//TODO 错误推送
+		fmt.Println("Error-117:", err)
+
+		return
+	}
+
+	// Create agent with builder pattern
+	a, err := agent.New().
+		WithProvider(p).
+		WithModel(modelConfig.ModelID).
+		WithSystemPrompt("You are a helpful assistant.").
+		Build()
+
+	if err != nil {
+		//TODO 错误推送
+		fmt.Println("Error-128:", err)
+
+		return
+	}
+	defer a.Close()
+
+	streamCh, err := a.RunStream(ctx, userInput)
+	if err != nil {
+		//TODO 错误推送
+		fmt.Println("Error-136:", err)
+		return
+	}
+	// Process stream events
+	for block := range streamCh {
+		switch block.Type {
+		case agent.BlockThinkEnd:
+			s.saveBlockSeqIncrement(&models.MessageBlock{
+				MessageID: message.ID,
+				BlockType: models.BlockTypeThinking,
+				Content:   block.Content,
+			})
+		case agent.BlockTextEnd:
+			s.saveBlockSeqIncrement(&models.MessageBlock{
+				MessageID: message.ID,
+				BlockType: models.BlockTypeText,
+				Content:   block.Content,
+			})
+		case agent.BlockToolCall:
+			s.saveBlockSeqIncrement(&models.MessageBlock{
+				MessageID: message.ID,
+				BlockType: models.BlockTypeToolUse,
+				ToolUseID: block.ToolID,
+				ToolName:  block.ToolName,
+				ToolInput: block.Content,
+			})
+		case agent.BlockToolResult:
+			s.saveBlockSeqIncrement(&models.MessageBlock{
+				MessageID: message.ID,
+				BlockType: models.BlockTypeToolResult,
+				ToolUseID: block.ToolID,
+				ToolName:  block.ToolName,
+				ToolInput: s.truncate(block.Content, 500),
+			})
+		case agent.BlockFinish:
+			//更新message和conversation
+			message.Status = models.MessageStatusCompleted
+			message.InputTokens = block.InputTokens
+			message.OutputTokens = block.OutputTokens
+			s.messageService.repo.Update(message)
+			conversation.OutputTokens += block.OutputTokens
+			conversation.InputTokens += block.InputTokens
+			conversation.TotalTokens += block.InputTokens + block.OutputTokens
+			s.conversationService.repo.Update(conversation)
+		case agent.BlockError:
+			s.saveBlockSeqIncrement(&models.MessageBlock{
+				MessageID: message.ID,
+				BlockType: models.BlockTypeText,
+				Content:   fmt.Sprintf("错误 #%d: %s", block.Iteration, block.Content),
+				IsError:   true,
+			})
+			message.Status = models.MessageStatusCompleted
+			s.messageService.repo.Update(message)
+		}
+	}
+}
+
+func (s *ChatService) buildProvider(ctx context.Context, modelConfig *models.Model, apiKey string) (provider.Provider, error) {
+	switch modelConfig.Provider {
+	case "openai":
+		return openai.New(apiKey, nil, openai.WithBaseURL(modelConfig.BaseURL)), nil
+	case "anthropic":
+		return anthropic.New(apiKey, nil, anthropic.WithBaseURL(modelConfig.BaseURL)), nil
+	case "gemini":
+		return google.New(apiKey, nil, google.WithBaseURL(modelConfig.BaseURL)), nil
+	default:
+		return nil, fmt.Errorf("unknown provider: %s", modelConfig.Provider)
+	}
+}
+
+func (s *ChatService) saveUserMessage(userInput string, conversationID string, modelName string) error {
 	userMsg := &models.Message{
 		ConversationID: conversationID,
 		Role:           "user",
-		ModelName:      modelConfig.Name,
+		ModelName:      modelName,
 	}
-	if err := s.messageRepo.Create(userMsg); err != nil {
-		return "", err
+	if err := s.messageService.repo.Create(userMsg); err != nil {
+		return err
 	}
 
 	// Save user text block
@@ -91,147 +217,25 @@ func (s *ChatService) SendMessageStream(conversationID, userInput, modelID strin
 		BlockType: "text",
 		Content:   userInput,
 	}
-	if err := s.messageBlockRepo.Create(userBlock); err != nil {
-		return "", err
+	if err := s.messageBlockService.repo.Create(userBlock); err != nil {
+		return err
 	}
-
-	// Update conversation
-	conversation.MessageCount++
-	if err := s.conversationRepo.Update(conversation); err != nil {
-		return "", err
-	}
-
-	// Create assistant message
-	agentMsg := &models.Message{
-		ConversationID: conversationID,
-		Role:           "assistant",
-		ModelName:      modelConfig.Name,
-	}
-	if err := s.messageRepo.Create(agentMsg); err != nil {
-		return "", err
-	}
-
-	// Create a block for streaming content
-	streamingBlock := &models.MessageBlock{
-		MessageID: agentMsg.ID,
-		BlockType: "text",
-		Content:   "",
-	}
-	if err := s.messageBlockRepo.Create(streamingBlock); err != nil {
-		return "", err
-	}
-
-	// Run streaming in background
-	go s.runStreamingInBackground(agentMsg.ID, streamingBlock, modelConfig, apiKey, userInput)
-
-	return agentMsg.ID, nil
+	return nil
 }
-
-func (s *ChatService) runStreamingInBackground(messageID string, block *models.MessageBlock, modelConfig *models.Model, apiKey, userInput string) {
-	var fullText strings.Builder
-
-	// Build model
-	model := s.buildModel(modelConfig, apiKey)
-
-	// Create agent with builder pattern
-	agent := agents.New("assistant").
-		WithInstructions("You are a helpful assistant.").
-		WithModelInstance(model)
-
-	// Run with streaming
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	seqResult, err := agents.RunStreamedSeq(ctx, agent, userInput)
+func (s *ChatService) saveBlockSeqIncrement(block *models.MessageBlock) error {
+	lastSeq, err := s.messageBlockService.repo.GetLastSequence(block.MessageID)
 	if err != nil {
-		block.Content = "Error: " + err.Error()
-		block.IsError = true
-		s.messageBlockRepo.Update(block)
-		s.emit("stream:error", map[string]string{
-			"messageID": messageID,
-			"error":     err.Error(),
-		})
-		return
+		return err
 	}
-
-	// Process stream events
-	for event := range seqResult.Seq {
-		switch e := event.(type) {
-		case agents.RawResponsesStreamEvent:
-			// Text delta from LLM
-			if e.Data.Delta != "" {
-				fullText.WriteString(e.Data.Delta)
-				block.Content = fullText.String()
-				s.messageBlockRepo.Update(block)
-				s.emit("stream:token", map[string]string{
-					"messageID": messageID,
-					"token":     e.Data.Delta,
-				})
-			}
-			if e.Data.Type == "response.completed" {
-				s.emit("stream:end", map[string]string{
-					"messageID": messageID,
-				})
-			}
-
-		case agents.RunItemStreamEvent:
-			switch e.Name {
-			case agents.StreamEventToolCalled:
-				// Tool call started
-				if tc, ok := e.Item.(agents.ToolCallItem); ok {
-					toolInput := ""
-					if raw, ok := tc.RawItem.(agents.ResponseFunctionToolCall); ok {
-						toolInput = raw.Arguments
-						s.messageBlockRepo.Create(&models.MessageBlock{
-							MessageID: messageID,
-							BlockType: "tool_use",
-							ToolUseID: raw.CallID,
-							ToolName:  raw.Name,
-							ToolInput: toolInput,
-						})
-					}
-				}
-
-			case agents.StreamEventToolOutput:
-				// Tool call completed
-				if tc, ok := e.Item.(agents.ToolCallOutputItem); ok {
-					s.messageBlockRepo.Create(&models.MessageBlock{
-						MessageID:  messageID,
-						BlockType:  "tool_result",
-						ToolUseID:  tc.RawItem.(agents.ResponseInputItemFunctionCallOutputParam).CallID,
-						ToolResult: fmt.Sprintf("%v", tc.Output),
-					})
-				}
-
-			case agents.StreamEventMessageOutputCreated:
-				// Message output completed
-			}
-		}
+	block.SequenceOrder = lastSeq + 1
+	if err := s.messageBlockService.repo.Create(block); err != nil {
+		return err
 	}
-
-	// Check for errors
-	if seqResult.Err != nil {
-		block.Content = "Error: " + seqResult.Err.Error()
-		block.IsError = true
-		s.messageBlockRepo.Update(block)
-		s.emit("stream:error", map[string]string{
-			"messageID": messageID,
-			"error":     seqResult.Err.Error(),
-		})
-		return
-	}
-
-	// Final update
-	block.Content = fullText.String()
-	s.messageBlockRepo.Update(block)
-	s.emit("stream:end", map[string]string{
-		"messageID": messageID,
-	})
+	return nil
 }
-
-func (s *ChatService) buildModel(modelConfig *models.Model, apiKey string) agents.Model {
-	return ModelFactory(&ModelConfig{
-		ModelID: modelConfig.ModelID,
-		BaseURL: modelConfig.BaseURL,
-	}, apiKey)
+func (s *ChatService) truncate(c string, maxLen int) string {
+	if len(c) <= maxLen {
+		return c
+	}
+	return c[:maxLen] + "..."
 }

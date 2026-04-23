@@ -7,12 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatInput from "@/components/Chat/ChatInput";
 import { Conversation, Message, MessageBlock } from "@/../bindings/xAssistant/internal/models";
 import { ConversationService, MessageService, MessageBlockService, ChatService } from "@/../bindings/xAssistant/internal/services";
-import { Events } from "@wailsio/runtime";
 
-interface StreamState {
-  messageID: string | null;
-  content: string;
-}
 
 export default function ChatDetail() {
   const { id } = useParams<{ id: string }>();
@@ -20,7 +15,6 @@ export default function ChatDetail() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageBlocks, setMessageBlocks] = useState<Record<string, MessageBlock[]>>({});
   const [sending, setSending] = useState(false);
-  const [streamState, setStreamState] = useState<StreamState>({ messageID: null, content: "" });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const loadConversation = async () => {
@@ -59,57 +53,28 @@ export default function ChatDetail() {
   };
 
   // Set up stream event listeners
-  useEffect(() => {
-    const tokenHandler = (ev: { data: { messageID: string; token: string } }) => {
-      setStreamState(prev => ({
-        messageID: ev.data.messageID,
-        content: prev.content + ev.data.token,
-      }));
-    };
 
-    const endHandler = async (ev: { data: { messageID: string } }) => {
-      await loadMessages();
-      setStreamState({ messageID: null, content: "" });
-      setSending(false);
-    };
 
-    const errorHandler = async (ev: { data: { messageID: string; error: string } }) => {
-      console.error("Stream error:", ev.data.error);
-      await loadMessages();
-      setStreamState({ messageID: null, content: "" });
-      setSending(false);
-    };
-
-    Events.On("stream:token", tokenHandler);
-    Events.On("stream:end", endHandler);
-    Events.On("stream:error", errorHandler);
-
-    return () => {
-      Events.Off("stream:token");
-      Events.Off("stream:end");
-      Events.Off("stream:error");
-    };
-  }, []);
 
   useEffect(() => {
     loadConversation();
     loadMessages();
   }, [id]);
 
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamState.content]);
+  // useEffect(() => {
+  //   scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  // }, [messages, streamState.content]);
 
   const handleSend = useCallback((message: string, modelId: string) => {
     if (!id || sending) return;
 
     setSending(true);
-    setStreamState({ messageID: null, content: "" });
+
 
     ChatService.SendMessageStream(id, message, modelId)
       .then(async (messageID) => {
         // Start with empty content, will be updated by events
-        setStreamState({ messageID, content: "" });
+        console.log("Sending message:", messageID);
         // Add placeholder message to UI
         await loadMessages();
       })
@@ -122,10 +87,7 @@ export default function ChatDetail() {
 
   const renderMessage = (message: Message) => {
     const isUser = message.role === "user";
-    const isStreaming = streamState.messageID === message.id;
-    const blocks = isStreaming
-      ? [{ id: "streaming", message_id: message.id, block_type: "text", content: streamState.content, tool_use_id: "", tool_name: "", tool_input: "", tool_result: "", is_error: false, created_at: "", updated_at: "" }]
-      : (messageBlocks[message.id] || []);
+    const blocks = (messageBlocks[message.id] || [])
 
     return (
       <div
@@ -195,9 +157,6 @@ export default function ChatDetail() {
                 </div>
               ))
             )}
-            {isStreaming && (
-              <span className="animate-pulse">▊</span>
-            )}
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {!isUser && message.model_name && (
@@ -244,7 +203,7 @@ export default function ChatDetail() {
       {/* Messages */}
       <ScrollArea className="flex-1 px-6 py-4">
         <div className="flex flex-col gap-4">
-          {messages.length === 0 && !streamState.messageID ? (
+          {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <Bot className="h-12 w-12 text-muted-foreground/50" />
               <p className="mt-4 text-sm font-medium">Start the conversation</p>

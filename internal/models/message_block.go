@@ -2,6 +2,11 @@ package models
 
 import "time"
 
+const BlockTypeText = "text"
+const BlockTypeThinking = "thinking"
+const BlockTypeToolUse = "tool_use"
+const BlockTypeToolResult = "tool_result"
+
 type MessageBlock struct {
 	ID            string    `gorm:"type:text;primaryKey" json:"id"`
 	MessageID     string    `gorm:"type:text;not null;index" json:"message_id"`
