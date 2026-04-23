@@ -21,6 +21,7 @@ type ChatService struct {
 	messageService      *MessageService
 	messageBlockService *MessageBlockService
 	modelService        *ModelService
+	agentService        *AgentService
 	app                 *application.App
 	streamManager       *StreamManager
 }
@@ -30,12 +31,14 @@ func NewChatService(
 	messageService *MessageService,
 	messageBlockService *MessageBlockService,
 	modelService *ModelService,
+	agentService *AgentService,
 ) *ChatService {
 	return &ChatService{
 		conversationService: conversationService,
 		messageService:      messageService,
 		messageBlockService: messageBlockService,
 		modelService:        modelService,
+		agentService:        agentService,
 		streamManager:       NewStreamManager(),
 	}
 }
@@ -61,9 +64,15 @@ func (s *ChatService) emitStreamEvent(messageID string, event StreamEvent) {
 
 // SendMessageStream sends a message with streaming output
 // thinkingLevel: "" (no thinking), "low", "medium", "high"
-func (s *ChatService) SendMessageStream(conversationID, userInput, modelID, thinkingLevel string) (string, error) {
+func (s *ChatService) SendMessageStream(conversationID, userInput, modelID, agentID, thinkingLevel string) (string, error) {
 	// Get model config
 	modelConfig, err := s.modelService.GetByID(modelID)
+	if err != nil {
+		return "", err
+	}
+
+	// Get agent config
+	agentConfig, err := s.agentService.GetByID(agentID)
 	if err != nil {
 		return "", err
 	}
@@ -97,12 +106,12 @@ func (s *ChatService) SendMessageStream(conversationID, userInput, modelID, thin
 	// Create stream buffer
 	s.streamManager.Create(agentMsg.ID)
 
-	go s.runStreamingInBackground(conversationID, agentMsg.ID, modelConfig, apiKey, userInput, provider.ThinkingLevel(thinkingLevel))
+	go s.runStreamingInBackground(conversationID, agentMsg.ID, modelConfig, agentConfig, apiKey, userInput, provider.ThinkingLevel(thinkingLevel))
 
 	return agentMsg.ID, nil
 }
 
-func (s *ChatService) runStreamingInBackground(conversationID, messageID string, modelConfig *models.Model, apiKey, userInput string, thinkingLevel provider.ThinkingLevel) {
+func (s *ChatService) runStreamingInBackground(conversationID, messageID string, modelConfig *models.Model, agentConfig *models.Agent, apiKey, userInput string, thinkingLevel provider.ThinkingLevel) {
 	// Cleanup buffer when done
 	defer s.streamManager.Delete(messageID)
 
@@ -126,11 +135,14 @@ func (s *ChatService) runStreamingInBackground(conversationID, messageID string,
 		history = nil
 	}
 
+	// Build system prompt
+	systemPrompt := s.buildSystemPrompt(agentConfig)
+
 	// Create agent with builder pattern
 	builder := agent.New().
 		WithProvider(p).
 		WithModel(modelConfig.ModelID).
-		WithSystemPrompt("You are a helpful assistant.")
+		WithSystemPrompt(systemPrompt)
 	if thinkingLevel != "" {
 		builder = builder.WithThinkingLevel(thinkingLevel)
 	}
@@ -248,6 +260,7 @@ func (s *ChatService) buildConversationHistory(conversationID, excludeMessageID 
 	}
 
 	var history []provider.Message
+
 	for _, msg := range messages {
 		// Skip the message we're currently generating (excludeMessageID is the assistant message)
 		// Also skip any pending/streaming messages
@@ -472,4 +485,42 @@ func (s *ChatService) GenerateTitle(conversationID string) (string, error) {
 
 	log.Printf("[GenerateTitle] Title updated successfully\n")
 	return title, nil
+}
+
+// buildSystemPrompt constructs the system prompt based on agent configuration
+func (s *ChatService) buildSystemPrompt(agentConfig *models.Agent) string {
+	currentDate := time.Now().Format("2006-01-02")
+
+	// Base prompt
+	prompt := fmt.Sprintf("You are %s, running in the xAssistant app. You are a helpful assistant skilled at using tools to solve problems.", agentConfig.Name)
+
+	// Add agent description if not empty
+	if agentConfig.Description != "" {
+		prompt += fmt.Sprintf(" %s.", agentConfig.Description)
+	}
+
+	// Add agents_md if not empty
+	if agentConfig.AgentsMD != "" {
+		prompt += fmt.Sprintf(" %s.", agentConfig.AgentsMD)
+	}
+
+	// Add soul_md if not empty
+	if agentConfig.SoulMD != "" {
+		prompt += fmt.Sprintf(" %s.", agentConfig.SoulMD)
+	}
+
+	// Add profile_md if not empty
+	if agentConfig.ProfileMD != "" {
+		prompt += fmt.Sprintf(" %s.", agentConfig.ProfileMD)
+	}
+
+	// Add memory_md if not empty
+	if agentConfig.MemoryMD != "" {
+		prompt += fmt.Sprintf(" %s.", agentConfig.MemoryMD)
+	}
+
+	// Add current date
+	prompt += fmt.Sprintf(" Today's date is %s.", currentDate)
+
+	return prompt
 }

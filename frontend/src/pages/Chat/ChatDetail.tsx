@@ -8,8 +8,8 @@ import { ChatHeader } from "@/components/Chat/ChatHeader";
 import { BlockContent } from "@/components/Chat/BlockContent";
 import { StreamingBubble } from "@/components/Chat/StreamingBubble";
 import type { StreamEvent, StreamState } from "@/components/Chat/types";
-import { Conversation, Message, MessageBlock } from "@/../bindings/xAssistant/internal/models";
-import { ConversationService, MessageService, MessageBlockService, ChatService } from "@/../bindings/xAssistant/internal/services";
+import { Conversation, Message, MessageBlock, Agent } from "@/../bindings/xAssistant/internal/models";
+import { ConversationService, MessageService, MessageBlockService, ChatService, AgentService } from "@/../bindings/xAssistant/internal/services";
 import { Events } from "@wailsio/runtime";
 
 interface ChatDetailProps {
@@ -23,6 +23,7 @@ export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
 
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const conversationRef = useRef<Conversation | null>(null);
+  const [agent, setAgent] = useState<Agent | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageBlocks, setMessageBlocks] = useState<Record<string, MessageBlock[]>>({});
   const [sending, setSending] = useState(false);
@@ -44,6 +45,11 @@ export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
       const conv = await ConversationService.GetByID(currentId);
       setConversation(conv);
       conversationRef.current = conv;
+
+      if (conv?.agent_id) {
+        const agentData = await AgentService.GetByID(conv.agent_id);
+        setAgent(agentData);
+      }
     } catch (error) {
       console.error("Failed to load conversation:", error);
     }
@@ -200,7 +206,10 @@ export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
 
       setSending(true);
 
-      ChatService.SendMessageStream(currentId, message, modelId, thinkingLevel)
+      // Get agentID from conversation
+      const agentID = conversationRef.current?.agent_id || "";
+
+      ChatService.SendMessageStream(currentId, message, modelId, agentID, thinkingLevel)
         .then(async (messageID) => {
           await subscribeToStream(messageID);
           await loadMessages();
@@ -231,7 +240,7 @@ export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
 
   return (
     <div className="flex h-full flex-col flex-1">
-      <ChatHeader conversation={conversation} />
+      <ChatHeader agent={agent} messageCount={messages.length} title={conversation?.title} />
 
       <ScrollArea className="flex-1 px-6 py-4">
         <div className="flex flex-col gap-4">
