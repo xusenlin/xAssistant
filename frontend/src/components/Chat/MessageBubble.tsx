@@ -1,8 +1,8 @@
 import { Bot, User } from "lucide-react";
-import { Message, MessageBlock } from "@/../bindings/xAssistant/internal/models";
 import { BlockContent } from "@/components/Chat/BlockContent";
 import { StreamingBubble } from "@/components/Chat/StreamingBubble";
 import type { StreamState } from "@/components/Chat/types";
+import type { Message, MessageBlock } from "@/../bindings/xAssistant/internal/models";
 
 interface MessageBubbleProps {
   message: Message;
@@ -15,12 +15,7 @@ export function MessageBubble({ message, blocks, isStreaming, streamState }: Mes
   const isUser = message.role === "user";
 
   if (isStreaming) {
-    return (
-      <StreamingBubble
-        streamState={streamState}
-        modelName={message.model_name}
-      />
-    );
+    return <StreamingBubble streamState={streamState} modelName={message.model_name} />;
   }
 
   return (

@@ -1,42 +1,35 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Bot, User, Loader2 } from "lucide-react";
+import { Bot, Loader2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatInput from "@/components/Chat/ChatInput";
 import type { ThinkingLevel } from "@/components/Chat/ChatInput";
 import { ChatHeader } from "@/components/Chat/ChatHeader";
-import { BlockContent } from "@/components/Chat/BlockContent";
-import { StreamingBubble } from "@/components/Chat/StreamingBubble";
-import type { StreamEvent, StreamState } from "@/components/Chat/types";
+import { MessageBubble } from "@/components/Chat/MessageBubble";
 import { Message, MessageBlock } from "@/../bindings/xAssistant/internal/models";
 import { ConversationService, MessageService, MessageBlockService, ChatService } from "@/../bindings/xAssistant/internal/services";
-import { Events } from "@wailsio/runtime";
 import { useChatStore } from "@/stores/chatStore";
+import { useStreamSubscription } from "@/hooks/useStreamSubscription";
 
 export default function ChatDetail() {
   const { id } = useParams<{ id: string }>();
+
+  // Keep a ref to the latest id so async callbacks can read it without stale closures
   const idRef = useRef(id);
   idRef.current = id;
 
+  // --- Store ---
   const { currentConversation: conversation, loadCurrentConversation, loadConversations } = useChatStore();
-  const conversationRef = useRef(conversation);
-  conversationRef.current = conversation;
 
+  // --- Local state ---
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageBlocks, setMessageBlocks] = useState<Record<string, MessageBlock[]>>({});
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const eventOffRef = useRef<(() => void) | null>(null);
-  const streamingMessageIdRef = useRef<string | null>(null);
 
-  const [streamState, setStreamState] = useState<StreamState>({
-    messageID: null,
-    blocks: [],
-    current: null,
-    isStreaming: false,
-  });
+  // --- Message loading ---
 
-  const loadMessages = async () => {
+  const loadMessages = useCallback(async () => {
     const currentId = idRef.current;
     if (!currentId) return;
     try {
@@ -45,7 +38,7 @@ export default function ChatDetail() {
 
       const blocksMap: Record<string, MessageBlock[]> = {};
       for (const msg of filteredMsgs) {
-        if (msg && msg.status === "completed") {
+        if (msg.status === "completed") {
           const blocks = await MessageBlockService.GetByMessageID(msg.id);
           blocksMap[msg.id] = (blocks || []).filter((b): b is MessageBlock => b !== null);
         }
@@ -54,155 +47,84 @@ export default function ChatDetail() {
       setMessages(filteredMsgs);
       setMessageBlocks(blocksMap);
 
+      // Resume stream if last message is still in-progress (e.g. page refresh during streaming)
       const lastMsg = filteredMsgs[filteredMsgs.length - 1];
       if (lastMsg && lastMsg.status !== "completed" && lastMsg.status !== "failed" && streamingMessageIdRef.current !== lastMsg.id) {
-        subscribeToStream(lastMsg.id);
+        subscribe(lastMsg.id);
       }
     } catch (error) {
       console.error("Failed to load messages:", error);
     }
-  };
-
-  const unsubscribeFromStream = useCallback(() => {
-    streamingMessageIdRef.current = null;
-    if (eventOffRef.current) {
-      eventOffRef.current();
-      eventOffRef.current = null;
-    }
-    setStreamState({ messageID: null, blocks: [], current: null, isStreaming: false });
   }, []);
 
-  const handleStreamEvent = useCallback((event: { data: StreamEvent }) => {
-    const data = event.data;
+  // --- Stream subscription ---
 
-    setStreamState((prev) => {
-      switch (data.type) {
-        case "block_start":
-          return {
-            ...prev,
-            current: new MessageBlock({ block_type: data.block_type || "text", content: "" }),
-          };
+  const handleStreamComplete = useCallback(async () => {
+    await loadMessages();
+    setSending(false);
 
-        case "delta":
-          if (prev.current && prev.current.block_type === data.block_type) {
-            return {
-              ...prev,
-              current: {
-                ...prev.current,
-                content: data.content || prev.current.content + (data.delta || ""),
-              },
-            };
-          }
-          return prev;
-
-        case "block_end":
-          return {
-            ...prev,
-            blocks: [
-              ...prev.blocks,
-              new MessageBlock({ block_type: data.block_type || "text", content: data.content || "" }),
-            ],
-            current: null,
-          };
-
-        case "complete": {
-          const currentConv = conversationRef.current;
-          setTimeout(async () => {
-            await loadMessages();
-            unsubscribeFromStream();
-            setSending(false);
-
-            if (currentConv && (currentConv.title === "" || currentConv.title === "New Chat")) {
-              try {
-                const title = await ChatService.GenerateTitle(currentConv.id);
-                if (title) {
-                  await loadCurrentConversation(currentConv.id);
-                  loadConversations();
-                }
-              } catch (error) {
-                console.error("Failed to generate title:", error);
-              }
-            }
-          }, 0);
-          return prev;
+    // Auto-generate title for untitled conversations
+    const conv = useChatStore.getState().currentConversation;
+    if (conv && (conv.title === "" || conv.title === "New Chat")) {
+      try {
+        const title = await ChatService.GenerateTitle(conv.id);
+        if (title) {
+          await loadCurrentConversation(conv.id);
+          loadConversations();
         }
-
-        case "error":
-          console.error("Stream error:", data.error);
-          setTimeout(async () => {
-            await loadMessages();
-            unsubscribeFromStream();
-            setSending(false);
-          }, 0);
-          return prev;
-
-        default:
-          return prev;
+      } catch (error) {
+        console.error("Failed to generate title:", error);
       }
-    });
-  }, [unsubscribeFromStream, loadCurrentConversation, loadConversations]);
-
-  const subscribeToStream = useCallback(async (messageID: string) => {
-    unsubscribeFromStream();
-    streamingMessageIdRef.current = messageID;
-
-    try {
-      const snapshot = await ChatService.Subscribe(messageID);
-      setStreamState({
-        messageID,
-        blocks: snapshot?.blocks || [],
-        current: snapshot?.current || null,
-        isStreaming: true,
-      });
-
-      const eventName = `chat:stream:${messageID}`;
-      Events.On(eventName, handleStreamEvent);
-      eventOffRef.current = () => Events.Off(eventName);
-    } catch (error) {
-      console.error("Failed to subscribe to stream:", error);
-      streamingMessageIdRef.current = null;
-      setStreamState({ messageID: null, blocks: [], current: null, isStreaming: false });
     }
-  }, [unsubscribeFromStream, handleStreamEvent]);
+  }, [loadMessages, loadCurrentConversation, loadConversations]);
 
-  useEffect(() => {
-    return () => unsubscribeFromStream();
-  }, [unsubscribeFromStream]);
+  const handleStreamError = useCallback(async () => {
+    await loadMessages();
+    setSending(false);
+  }, [loadMessages]);
 
+  const { streamState, subscribe, streamingMessageIdRef } = useStreamSubscription({
+    onComplete: handleStreamComplete,
+    onError: handleStreamError,
+  });
+
+  // --- Effects ---
+
+  // Load conversation & messages when id changes
   useEffect(() => {
-    unsubscribeFromStream();
     if (id) {
       loadCurrentConversation(id);
     }
     loadMessages();
   }, [id]);
 
+  // Auto-scroll on new content
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamState.blocks, streamState.current]);
 
+  // --- Actions ---
+
   const handleSend = useCallback(
-    (message: string, modelId: string, thinkingLevel: ThinkingLevel) => {
+    async (message: string, modelId: string, thinkingLevel: ThinkingLevel) => {
       const currentId = idRef.current;
       if (!currentId || sending) return;
 
       setSending(true);
 
-      // Get agentID from conversation
-      const agentID = conversationRef.current?.agent_id || "";
+      const agentID = useChatStore.getState().currentConversation?.agent_id || "";
 
-      ChatService.SendMessageStream(currentId, message, modelId, agentID, thinkingLevel)
-        .then(async (messageID) => {
-          await subscribeToStream(messageID);
-          await loadMessages();
-        })
-        .catch(async (error) => {
-          console.error("SendMessageStream error:", error);
-          await loadMessages();
-          setSending(false);
-        });
+      try {
+        const messageID = await ChatService.SendMessageStream(currentId, message, modelId, agentID, thinkingLevel);
+        await subscribe(messageID);
+        await loadMessages();
+      } catch (error) {
+        console.error("SendMessageStream error:", error);
+        await loadMessages();
+        setSending(false);
+      }
     },
-    [sending, subscribeToStream]
+    [sending, subscribe, loadMessages]
   );
 
   const handleModelChange = useCallback((modelId: string) => {
@@ -211,6 +133,8 @@ export default function ChatDetail() {
       ConversationService.UpdateModelID(currentId, modelId);
     }
   }, []);
+
+  // --- Render ---
 
   if (!conversation) {
     return (
@@ -260,78 +184,3 @@ export default function ChatDetail() {
     </div>
   );
 }
-
-interface MessageBubbleProps {
-  message: Message;
-  blocks: MessageBlock[];
-  isStreaming: boolean;
-  streamState: StreamState;
-}
-
-const MessageBubble = ({ message, blocks, isStreaming, streamState }: MessageBubbleProps) => {
-  const isUser = message.role === "user";
-
-  if (isStreaming) {
-    return (
-      <StreamingBubble
-        streamState={streamState}
-        modelName={message.model_name}
-      />
-    );
-  }
-
-  return (
-    <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
-      <div
-        className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${
-          isUser ? "bg-primary text-primary-foreground" : "bg-muted"
-        }`}
-      >
-        {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
-      </div>
-
-      <div className={`flex flex-col gap-1 ${isUser ? "items-end" : "items-start"} max-w-[70%]`}>
-        <div
-          className={`rounded-lg px-4 py-2 ${
-            isUser ? "bg-primary/10 text-primary-foreground" : "bg-muted"
-          }`}
-        >
-          {blocks.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {message.status === "failed" ? "Stream failed" : "No content"}
-            </p>
-          ) : (
-            blocks.map((block) => (
-              <div key={block.id} className="text-sm">
-                <BlockContent
-                  blockType={block.block_type}
-                  content={block.content}
-                  toolName={block.tool_name}
-                  toolInput={block.tool_input}
-                  toolResult={block.tool_result}
-                  isError={block.is_error}
-                />
-              </div>
-            ))
-          )}
-        </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {!isUser && message.model_name && (
-            <span className="font-medium">{message.model_name}</span>
-          )}
-          {message.input_tokens > 0 || message.output_tokens > 0 ? (
-            <span>· {message.input_tokens + message.output_tokens} tokens</span>
-          ) : null}
-          <span>
-            {message.created_at
-              ? new Date(message.created_at).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })
-              : ""}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-};
