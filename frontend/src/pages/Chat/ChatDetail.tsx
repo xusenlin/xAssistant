@@ -8,22 +8,20 @@ import { ChatHeader } from "@/components/Chat/ChatHeader";
 import { BlockContent } from "@/components/Chat/BlockContent";
 import { StreamingBubble } from "@/components/Chat/StreamingBubble";
 import type { StreamEvent, StreamState } from "@/components/Chat/types";
-import { Conversation, Message, MessageBlock, Agent } from "@/../bindings/xAssistant/internal/models";
-import { ConversationService, MessageService, MessageBlockService, ChatService, AgentService } from "@/../bindings/xAssistant/internal/services";
+import { Message, MessageBlock } from "@/../bindings/xAssistant/internal/models";
+import { ConversationService, MessageService, MessageBlockService, ChatService } from "@/../bindings/xAssistant/internal/services";
 import { Events } from "@wailsio/runtime";
+import { useChatStore } from "@/stores/chatStore";
 
-interface ChatDetailProps {
-  onConversationUpdate?: () => void;
-}
-
-export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
+export default function ChatDetail() {
   const { id } = useParams<{ id: string }>();
   const idRef = useRef(id);
   idRef.current = id;
 
-  const [conversation, setConversation] = useState<Conversation | null>(null);
-  const conversationRef = useRef<Conversation | null>(null);
-  const [agent, setAgent] = useState<Agent | null>(null);
+  const { currentConversation: conversation, loadCurrentConversation, loadConversations } = useChatStore();
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageBlocks, setMessageBlocks] = useState<Record<string, MessageBlock[]>>({});
   const [sending, setSending] = useState(false);
@@ -37,23 +35,6 @@ export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
     current: null,
     isStreaming: false,
   });
-
-  const loadConversation = async () => {
-    const currentId = idRef.current;
-    if (!currentId) return;
-    try {
-      const conv = await ConversationService.GetByID(currentId);
-      setConversation(conv);
-      conversationRef.current = conv;
-
-      if (conv?.agent_id) {
-        const agentData = await AgentService.GetByID(conv.agent_id);
-        setAgent(agentData);
-      }
-    } catch (error) {
-      console.error("Failed to load conversation:", error);
-    }
-  };
 
   const loadMessages = async () => {
     const currentId = idRef.current;
@@ -135,8 +116,8 @@ export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
               try {
                 const title = await ChatService.GenerateTitle(currentConv.id);
                 if (title) {
-                  setConversation((prev) => (prev ? { ...prev, title } : null));
-                  onConversationUpdate?.();
+                  await loadCurrentConversation(currentConv.id);
+                  loadConversations();
                 }
               } catch (error) {
                 console.error("Failed to generate title:", error);
@@ -159,7 +140,7 @@ export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
           return prev;
       }
     });
-  }, [unsubscribeFromStream, onConversationUpdate]);
+  }, [unsubscribeFromStream, loadCurrentConversation, loadConversations]);
 
   const subscribeToStream = useCallback(async (messageID: string) => {
     unsubscribeFromStream();
@@ -190,7 +171,9 @@ export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
 
   useEffect(() => {
     unsubscribeFromStream();
-    loadConversation();
+    if (id) {
+      loadCurrentConversation(id);
+    }
     loadMessages();
   }, [id]);
 
@@ -229,12 +212,6 @@ export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
     }
   }, []);
 
-  const handleRefreshTitle = useCallback(async () => {
-    if (!conversation?.id) return;
-    await ChatService.GenerateTitle(conversation.id);
-    onConversationUpdate?.();
-  }, [conversation?.id, onConversationUpdate]);
-
   if (!conversation) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -245,7 +222,7 @@ export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
 
   return (
     <div className="flex h-full flex-col flex-1">
-      <ChatHeader agent={agent} messageCount={messages.length} title={conversation?.title} onRefreshTitle={handleRefreshTitle} />
+      <ChatHeader />
 
       <ScrollArea className="flex-1 px-6 py-4">
         <div className="flex flex-col gap-4">

@@ -5,15 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Agent } from "@/../bindings/xAssistant/internal/models";
-import { ConversationService, AgentService } from "@/../bindings/xAssistant/internal/services";
+import { AgentService } from "@/../bindings/xAssistant/internal/services";
+import { useChatStore } from "@/stores/chatStore";
 
-
-interface NewCovProps {
-  onConversationUpdate?: () => void;
-}
-
-export default function NewConversation({ onConversationUpdate }: NewCovProps) {
+export default function NewConversation() {
   const navigate = useNavigate();
+  const { createConversation } = useChatStore();
   const [agents, setAgents] = useState<Agent[]>([]);
 
   useEffect(() => {
@@ -31,19 +28,9 @@ export default function NewConversation({ onConversationUpdate }: NewCovProps) {
   };
 
   const handleAgentSelect = async (agentId: string) => {
-    try {
-      const newConv = await ConversationService.Create(
-        "New Chat",
-        agentId,
-        "simple"
-      );
-      if (newConv) {
-        //刷新对话
-        onConversationUpdate?.();
-        navigate(`/chat/${newConv.id}`);
-      }
-    } catch (error) {
-      console.error("Failed to create conversation:", error);
+    const newConv = await createConversation("New Chat", agentId);
+    if (newConv) {
+      navigate(`/chat/${newConv.id}`);
     }
   };
 

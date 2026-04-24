@@ -1,3 +1,4 @@
+import { useNavigate, useParams } from "react-router-dom";
 import { Bot, MessageSquare, MoreVertical, Pin, PinOff, Trash2, Archive, ArchiveRestore } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,20 +12,20 @@ import { toast } from "sonner";
 import { Conversation } from "@/../bindings/xAssistant/internal/models";
 import { ConversationService } from "@/../bindings/xAssistant/internal/services";
 import { cn } from "@/lib/utils";
+import { useChatStore } from "@/stores/chatStore";
 
 interface ConversationListProps {
-  conversations: Conversation[];
-  selectedId?: string;
-  onSelect: (conversation: Conversation) => void;
-  onRefresh: () => void;
+  searchQuery?: string;
 }
 
-export default function ConversationList({
-  conversations,
-  selectedId,
-  onSelect,
-  onRefresh,
-}: ConversationListProps) {
+export default function ConversationList({ searchQuery = "" }: ConversationListProps) {
+  const navigate = useNavigate();
+  const { id: selectedId } = useParams();
+  const { conversations, loadConversations } = useChatStore();
+
+  const filteredConversations = conversations.filter((c) =>
+    c.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const formatDate = (date: Date | string) => {
     const d = new Date(date);
@@ -43,11 +44,11 @@ export default function ConversationList({
     }
   };
 
-  const pinnedConversations = conversations.filter((c) => c.pinned);
-  const activeConversations = conversations.filter(
+  const pinnedConversations = filteredConversations.filter((c) => c.pinned);
+  const activeConversations = filteredConversations.filter(
     (c) => c.status === "active" && !c.pinned
   );
-  const archivedConversations = conversations.filter(
+  const archivedConversations = filteredConversations.filter(
     (c) => c.status === "archived"
   );
 
@@ -63,7 +64,7 @@ export default function ConversationList({
             ? "bg-primary/10 text-primary"
             : "hover:bg-accent"
         )}
-        onClick={() => onSelect(conversation)}
+        onClick={() => navigate(`/chat/${conversation.id}`)}
       >
         <div className={cn(
           "flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg",
@@ -105,44 +106,44 @@ export default function ConversationList({
                 className="h-8 w-8 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
               >
                 <MoreVertical className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => handleTogglePin(conversation, onRefresh)}>
-              {conversation.pinned ? (
-                <>
-                  <PinOff className="mr-2 h-4 w-4" />
-                  Unpin
-                </>
-              ) : (
-                <>
-                  <Pin className="mr-2 h-4 w-4" />
-                  Pin
-                </>
-              )}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleArchive(conversation, onRefresh)}>
-              {conversation.status === "archived" ? (
-                <>
-                  <ArchiveRestore className="mr-2 h-4 w-4" />
-                  Unarchive
-                </>
-              ) : (
-                <>
-                  <Archive className="mr-2 h-4 w-4" />
-                  Archive
-                </>
-              )}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => handleDelete(conversation, onRefresh)}
-              className="text-destructive"
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => handleTogglePin(conversation, loadConversations)}>
+                {conversation.pinned ? (
+                  <>
+                    <PinOff className="mr-2 h-4 w-4" />
+                    Unpin
+                  </>
+                ) : (
+                  <>
+                    <Pin className="mr-2 h-4 w-4" />
+                    Pin
+                  </>
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleArchive(conversation, loadConversations)}>
+                {conversation.status === "archived" ? (
+                  <>
+                    <ArchiveRestore className="mr-2 h-4 w-4" />
+                    Unarchive
+                  </>
+                ) : (
+                  <>
+                    <Archive className="mr-2 h-4 w-4" />
+                    Archive
+                  </>
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleDelete(conversation, loadConversations)}
+                className="text-destructive"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     );
@@ -179,7 +180,7 @@ export default function ConversationList({
           archivedConversations,
           <Archive className="h-3 w-3" />
         )}
-      {conversations.length === 0 && (
+      {filteredConversations.length === 0 && (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <MessageSquare className="h-12 w-12 text-muted-foreground/50" />
           <p className="mt-3 text-sm font-medium">No conversations yet</p>
