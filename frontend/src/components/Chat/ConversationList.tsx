@@ -90,7 +90,7 @@ export default function ConversationList({
             {conversation.message_count > 0 && (
               <>
                 <span>·</span>
-                <span>{conversation.message_count} messages</span>
+                <span>{conversation.message_count*2} messages</span>
               </>
             )}
           </div>

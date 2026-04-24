@@ -66,8 +66,7 @@ export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
       for (const msg of filteredMsgs) {
         if (msg && msg.status === "completed") {
           const blocks = await MessageBlockService.GetByMessageID(msg.id);
-          const filteredBlocks = (blocks || []).filter((b): b is MessageBlock => b !== null);
-          blocksMap[msg.id] = filteredBlocks;
+          blocksMap[msg.id] = (blocks || []).filter((b): b is MessageBlock => b !== null);
         }
       }
 
@@ -230,6 +229,12 @@ export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
     }
   }, []);
 
+  const handleRefreshTitle = useCallback(async () => {
+    if (!conversation?.id) return;
+    await ChatService.GenerateTitle(conversation.id);
+    onConversationUpdate?.();
+  }, [conversation?.id, onConversationUpdate]);
+
   if (!conversation) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -240,7 +245,7 @@ export default function ChatDetail({ onConversationUpdate }: ChatDetailProps) {
 
   return (
     <div className="flex h-full flex-col flex-1">
-      <ChatHeader agent={agent} messageCount={messages.length} title={conversation?.title} />
+      <ChatHeader agent={agent} messageCount={messages.length} title={conversation?.title} onRefreshTitle={handleRefreshTitle} />
 
       <ScrollArea className="flex-1 px-6 py-4">
         <div className="flex flex-col gap-4">
