@@ -410,7 +410,7 @@ func (s *ChatService) GenerateTitle(conversationID string) (string, error) {
 	}
 
 	if summary == "" {
-		return "New Chat", nil
+		return "", fmt.Errorf("no text content to generate title")
 	}
 
 	// Use default model to generate title
@@ -419,25 +419,25 @@ func (s *ChatService) GenerateTitle(conversationID string) (string, error) {
 		// Get first available model
 		models, err := s.modelService.GetAll()
 		if err != nil || len(models) == 0 {
-			return "New Chat", nil
+			return "", fmt.Errorf("no model available for title generation")
 		}
 		modelID = models[0].ID
 	}
 
 	modelConfig, err := s.modelService.GetByID(modelID)
 	if err != nil {
-		return "New Chat", nil
+		return "", fmt.Errorf("failed to get model config: %w", err)
 	}
 
 	apiKey, err := s.modelService.GetDecryptedAPIKey(modelID)
 	if err != nil {
-		return "New Chat", nil
+		return "", fmt.Errorf("failed to get API key: %w", err)
 	}
 
 	// Build provider
 	p, err := s.buildProvider(context.Background(), modelConfig, apiKey)
 	if err != nil {
-		return "New Chat", nil
+		return "", fmt.Errorf("failed to build provider: %w", err)
 	}
 
 	// Create agent for title generation
@@ -448,7 +448,7 @@ func (s *ChatService) GenerateTitle(conversationID string) (string, error) {
 		WithMaxIter(1).
 		Build()
 	if err != nil {
-		return "New Chat", nil
+		return "", fmt.Errorf("failed to build agent: %w", err)
 	}
 	defer a.Close()
 
@@ -456,12 +456,12 @@ func (s *ChatService) GenerateTitle(conversationID string) (string, error) {
 	prompt := fmt.Sprintf("Generate a title for this conversation:\n%s", s.truncate(summary, 500))
 	result, err := a.Run(context.Background(), prompt)
 	if err != nil {
-		return "New Chat", nil
+		return "", fmt.Errorf("title generation failed: %w", err)
 	}
 
 	title := result.Output
 	if title == "" {
-		return "New Chat", nil
+		return "", fmt.Errorf("title generation returned empty")
 	}
 
 	// Update conversation title

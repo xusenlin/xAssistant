@@ -1,21 +1,22 @@
 import { create } from "zustand";
 import { Conversation, Agent } from "@/../bindings/xAssistant/internal/models";
-import { ConversationService, AgentService } from "@/../bindings/xAssistant/internal/services";
+import { ConversationService, AgentService, ChatService } from "@/../bindings/xAssistant/internal/services";
 
 interface ChatStore {
   conversations: Conversation[];
-  currentConversation: Conversation | null;
+  activeConversationId: string | null;
   currentAgent: Agent | null;
 
   loadConversations: () => Promise<void>;
-  loadCurrentConversation: (id: string) => Promise<void>;
+  setActiveConversation: (id: string) => Promise<void>;
   createConversation: (title: string, agentId: string) => Promise<Conversation | null>;
+  refreshTitle: () => Promise<void>;
   clearCurrentConversation: () => void;
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
   conversations: [],
-  currentConversation: null,
+  activeConversationId: null,
   currentAgent: null,
 
   loadConversations: async () => {
@@ -28,17 +29,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
-  loadCurrentConversation: async (id: string) => {
-    try {
-      const conv = await ConversationService.GetByID(id);
-      set({ currentConversation: conv, currentAgent: null });
+  setActiveConversation: async (id: string) => {
+    set({ activeConversationId: id, currentAgent: null });
 
-      if (conv?.agent_id) {
+    const conv = get().conversations.find((c) => c.id === id);
+    if (conv?.agent_id) {
+      try {
         const agentData = await AgentService.GetByID(conv.agent_id);
         set({ currentAgent: agentData });
+      } catch (error) {
+        console.error("Failed to load agent:", error);
       }
-    } catch (error) {
-      console.error("Failed to load conversation:", error);
     }
   },
 
@@ -55,7 +56,22 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
+  refreshTitle: async () => {
+    const activeId = get().activeConversationId;
+    if (!activeId) return;
+    try {
+      const title = await ChatService.GenerateTitle(activeId);
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === activeId ? { ...c, title } : c
+        ),
+      }));
+    } catch (error) {
+      console.error("Failed to refresh title:", error);
+    }
+  },
+
   clearCurrentConversation: () => {
-    set({ currentConversation: null, currentAgent: null });
+    set({ activeConversationId: null, currentAgent: null });
   },
 }));

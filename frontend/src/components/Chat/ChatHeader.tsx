@@ -1,19 +1,17 @@
 import { useState } from "react";
 import { Bot, FileText, Brain, User, Database, RefreshCw, Loader2 } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
-import { ChatService } from "@/../bindings/xAssistant/internal/services";
 
 export function ChatHeader() {
-  const { currentConversation: conversation, currentAgent: agent, loadCurrentConversation, loadConversations } = useChatStore();
+  const { conversations, activeConversationId, currentAgent: agent, refreshTitle } = useChatStore();
+  const conversation = conversations.find((c) => c.id === activeConversationId) || null;
   const [refreshingTitle, setRefreshingTitle] = useState(false);
 
   const handleRefreshTitle = async () => {
     if (!conversation?.id || refreshingTitle) return;
     setRefreshingTitle(true);
     try {
-      await ChatService.GenerateTitle(conversation.id);
-      await loadCurrentConversation(conversation.id);
-      loadConversations();
+      await refreshTitle();
     } finally {
       setRefreshingTitle(false);
     }

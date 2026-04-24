@@ -10,50 +10,49 @@ import { Message, MessageBlock } from "@/../bindings/xAssistant/internal/models"
 import { ConversationService, MessageService, MessageBlockService, ChatService } from "@/../bindings/xAssistant/internal/services";
 import { useChatStore } from "@/stores/chatStore";
 import { useStreamSubscription } from "@/hooks/useStreamSubscription";
+import { useLatest } from "@/hooks/useLatest";
 
 export default function ChatDetail() {
   const { id } = useParams<{ id: string }>();
-
-  // Keep a ref to the latest id so async callbacks can read it without stale closures
-  const idRef = useRef(id);
-  idRef.current = id;
+  const latestId = useLatest(id);
 
   // --- Store ---
-  const { currentConversation: conversation, loadCurrentConversation, loadConversations } = useChatStore();
+  const { conversations, setActiveConversation, loadConversations } = useChatStore();
+  const conversation = conversations.find((c) => c.id === id) || null;
 
   // --- Local state ---
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageBlocks, setMessageBlocks] = useState<Record<string, MessageBlock[]>>({});
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const sendingRef = useLatest(sending);
 
   // --- Message loading ---
 
-  const loadMessages = useCallback(async () => {
-    const currentId = idRef.current;
-    if (!currentId) return;
+  const loadMessages = useCallback(async (): Promise<Message[]> => {
+    const currentId = latestId.current;
+    if (!currentId) return [];
     try {
       const msgs = await MessageService.GetByConversationID(currentId);
       const filteredMsgs = (msgs || []).filter((m): m is Message => m !== null);
 
-      const blocksMap: Record<string, MessageBlock[]> = {};
-      for (const msg of filteredMsgs) {
-        if (msg.status === "completed") {
+      // Fetch blocks in parallel instead of sequentially
+      const completedMsgs = filteredMsgs.filter((msg) => msg.status === "completed");
+      const blocksEntries = await Promise.all(
+        completedMsgs.map(async (msg) => {
           const blocks = await MessageBlockService.GetByMessageID(msg.id);
-          blocksMap[msg.id] = (blocks || []).filter((b): b is MessageBlock => b !== null);
-        }
-      }
+          return [msg.id, (blocks || []).filter((b): b is MessageBlock => b !== null)] as const;
+        })
+      );
+      const blocksMap: Record<string, MessageBlock[]> = Object.fromEntries(blocksEntries);
 
       setMessages(filteredMsgs);
       setMessageBlocks(blocksMap);
 
-      // Resume stream if last message is still in-progress (e.g. page refresh during streaming)
-      const lastMsg = filteredMsgs[filteredMsgs.length - 1];
-      if (lastMsg && lastMsg.status !== "completed" && lastMsg.status !== "failed" && streamingMessageIdRef.current !== lastMsg.id) {
-        subscribe(lastMsg.id);
-      }
+      return filteredMsgs;
     } catch (error) {
       console.error("Failed to load messages:", error);
+      return [];
     }
   }, []);
 
@@ -62,21 +61,8 @@ export default function ChatDetail() {
   const handleStreamComplete = useCallback(async () => {
     await loadMessages();
     setSending(false);
-
-    // Auto-generate title for untitled conversations
-    const conv = useChatStore.getState().currentConversation;
-    if (conv && (conv.title === "" || conv.title === "New Chat")) {
-      try {
-        const title = await ChatService.GenerateTitle(conv.id);
-        if (title) {
-          await loadCurrentConversation(conv.id);
-          loadConversations();
-        }
-      } catch (error) {
-        console.error("Failed to generate title:", error);
-      }
-    }
-  }, [loadMessages, loadCurrentConversation, loadConversations]);
+    loadConversations();
+  }, [loadMessages, loadConversations]);
 
   const handleStreamError = useCallback(async () => {
     await loadMessages();
@@ -93,9 +79,17 @@ export default function ChatDetail() {
   // Load conversation & messages when id changes
   useEffect(() => {
     if (id) {
-      loadCurrentConversation(id);
+      setActiveConversation(id);
     }
-    loadMessages();
+    (async () => {
+      const msgs = await loadMessages();
+
+      // Resume stream if last message is still in-progress (e.g. page refresh during streaming)
+      const lastMsg = msgs[msgs.length - 1];
+      if (lastMsg && lastMsg.status !== "completed" && lastMsg.status !== "failed" && streamingMessageIdRef.current !== lastMsg.id) {
+        subscribe(lastMsg.id);
+      }
+    })();
   }, [id]);
 
   // Auto-scroll on new content
@@ -107,12 +101,14 @@ export default function ChatDetail() {
 
   const handleSend = useCallback(
     async (message: string, modelId: string, thinkingLevel: ThinkingLevel) => {
-      const currentId = idRef.current;
-      if (!currentId || sending) return;
+      const currentId = latestId.current;
+      if (!currentId || sendingRef.current) return;
 
       setSending(true);
 
-      const agentID = useChatStore.getState().currentConversation?.agent_id || "";
+      const { conversations: cs } = useChatStore.getState();
+      const conv = cs.find((c) => c.id === currentId);
+      const agentID = conv?.agent_id || "";
 
       try {
         const messageID = await ChatService.SendMessageStream(currentId, message, modelId, agentID, thinkingLevel);
@@ -124,11 +120,11 @@ export default function ChatDetail() {
         setSending(false);
       }
     },
-    [sending, subscribe, loadMessages]
+    [subscribe, loadMessages]
   );
 
   const handleModelChange = useCallback((modelId: string) => {
-    const currentId = idRef.current;
+    const currentId = latestId.current;
     if (currentId && modelId) {
       ConversationService.UpdateModelID(currentId, modelId);
     }
