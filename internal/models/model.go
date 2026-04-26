@@ -16,6 +16,7 @@ type Model struct {
 	MaxTokens   int       `gorm:"type:integer;default:4096" json:"max_tokens"`
 	TopP        float64   `gorm:"type:real;default:1.0" json:"top_p"`
 	Enabled     bool      `gorm:"type:integer;default:1" json:"enabled"`
+	IsDefault   bool      `gorm:"type:integer;default:0" json:"is_default"`
 	Tags        string    `gorm:"type:text" json:"tags"`      // JSON 数组
 	Metadata    string    `gorm:"type:text" json:"metadata"` // JSON 对象
 	CreatedAt   time.Time `gorm:"autoCreateTime" json:"created_at"`

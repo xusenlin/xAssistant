@@ -127,6 +127,11 @@ export default function ChatDetail() {
     const currentId = latestId.current;
     if (currentId && modelId) {
       ConversationService.UpdateModelID(currentId, modelId);
+      useChatStore.setState((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === currentId ? { ...c, model_id: modelId } : c
+        ),
+      }));
     }
   }, []);
 

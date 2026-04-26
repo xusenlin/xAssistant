@@ -16,6 +16,8 @@ type ModelRepository interface {
 	Update(model *models.Model) error
 	Delete(id string) error
 	GetEnabled() ([]*models.Model, error)
+	GetDefault() (*models.Model, error)
+	SetDefault(id string) error
 }
 
 type ModelService struct {
@@ -105,4 +107,12 @@ func (s *ModelService) GetDecryptedAPIKey(id string) (string, error) {
 		return "", err
 	}
 	return s.crypto.Decrypt(m.APIKey)
+}
+
+func (s *ModelService) GetDefault() (*models.Model, error) {
+	return s.repo.GetDefault()
+}
+
+func (s *ModelService) SetDefault(id string) error {
+	return s.repo.SetDefault(id)
 }

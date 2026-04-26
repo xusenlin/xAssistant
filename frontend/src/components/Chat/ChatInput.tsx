@@ -48,13 +48,22 @@ export default function ChatInput({
   }, []);
 
   useEffect(() => {
-    if (defaultModelId && models.length > 0) {
+    if (models.length === 0) return;
+
+    if (defaultModelId) {
       setSelectedModelId(defaultModelId);
-    } else if (models.length > 0 && !selectedModelId) {
-      const enabledModel = models.find((m) => m.enabled);
-      if (enabledModel) {
-        setSelectedModelId(enabledModel.id);
-      }
+    } else {
+      ModelService.GetDefault().then((defaultModel) => {
+        if (defaultModel) {
+          setSelectedModelId(defaultModel.id);
+          onModelChange?.(defaultModel.id);
+          return;
+        }
+        const enabledModel = models.find((m) => m.enabled);
+        if (enabledModel) {
+          setSelectedModelId(enabledModel.id);
+        }
+      });
     }
   }, [models, defaultModelId]);
 

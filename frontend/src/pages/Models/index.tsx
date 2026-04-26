@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,7 @@ import ModelFormDialog from "@/components/Models/ModelFormDialog";
 import ModelDeleteDialog from "@/components/Models/ModelDeleteDialog";
 import { Model } from "../../../bindings/xAssistant/internal/models/index";
 import { ModelService } from "../../../bindings/xAssistant/internal/services/index";
+import { cn } from "@/lib/utils";
 
 interface FormData {
   name: string;
@@ -181,6 +182,15 @@ export default function Models() {
     }
   };
 
+  const handleSetDefault = async (model: Model) => {
+    try {
+      await ModelService.SetDefault(model.id);
+      loadModels();
+    } catch (error) {
+      console.error("Failed to set default model:", error);
+    }
+  };
+
   const getProviderBadge = (provider: string) => {
     const label = providers.find((p) => p.value === provider)?.label || provider;
     return (
@@ -243,6 +253,21 @@ export default function Models() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleSetDefault(model)}
+                          title="Set as default"
+                        >
+                          <Star
+                            className={cn(
+                              "h-4 w-4",
+                              model.is_default
+                                ? "fill-yellow-500 text-yellow-500"
+                                : "text-muted-foreground hover:text-yellow-500"
+                            )}
+                          />
+                        </Button>
                         <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(model)}>
                           <Pencil className="h-4 w-4" />
                         </Button>

@@ -56,3 +56,23 @@ func (r *ModelDAO) GetEnabled() ([]*models.Model, error) {
 	}
 	return models, nil
 }
+
+func (r *ModelDAO) GetDefault() (*models.Model, error) {
+	var m models.Model
+	if err := r.db.Where("is_default = ? AND enabled = ?", true, true).First(&m).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (r *ModelDAO) SetDefault(id string) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.Model{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.Model{}).Where("id = ?", id).Update("is_default", true).Error
+	})
+}
