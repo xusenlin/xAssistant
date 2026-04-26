@@ -21,6 +21,7 @@ type ChatService struct {
 	messageBlockService *MessageBlockService
 	modelService        *ModelService
 	agentService        *AgentService
+	modelStatService    *ModelStatService
 	app                 *application.App
 	streamManager       *StreamManager
 }
@@ -31,6 +32,7 @@ func NewChatService(
 	messageBlockService *MessageBlockService,
 	modelService *ModelService,
 	agentService *AgentService,
+	modelStatService *ModelStatService,
 ) *ChatService {
 	return &ChatService{
 		conversationService: conversationService,
@@ -38,6 +40,7 @@ func NewChatService(
 		messageBlockService: messageBlockService,
 		modelService:        modelService,
 		agentService:        agentService,
+		modelStatService:    modelStatService,
 		streamManager:       NewStreamManager(),
 	}
 }
@@ -111,7 +114,7 @@ func (s *ChatService) SendMessageStream(conversationID, userInput, modelID, agen
 }
 
 func (s *ChatService) runStreamingInBackground(conversationID, messageID string, modelConfig *models.Model, agentConfig *models.Agent, apiKey, userInput string, thinkingLevel provider.ThinkingLevel) {
-	// Cleanup buffer when done
+	startTime := time.Now()
 	defer s.streamManager.Delete(messageID)
 
 	// Run with streaming
@@ -245,11 +248,18 @@ func (s *ChatService) runStreamingInBackground(conversationID, messageID string,
 			s.messageService.UpdateTokens(messageID, block.InputTokens, block.OutputTokens)
 			s.conversationService.IncrementTokenCount(conversationID, block.InputTokens, block.OutputTokens)
 
+			respTimeMs := time.Since(startTime).Milliseconds()
+			s.modelStatService.RecordUsage(modelConfig.ID, int64(block.InputTokens), int64(block.OutputTokens), respTimeMs, false, 1)
+
 			s.emitStreamEvent(messageID, StreamEvent{Type: "complete"})
 
 		case agent.BlockError:
 			s.messageBlockService.CreateErrorTextBlock(messageID, fmt.Sprintf("错误 #%d: %s", block.Iteration, block.Full))
 			s.messageService.UpdateStatus(messageID, models.MessageStatusCompleted)
+
+			respTimeMs := time.Since(startTime).Milliseconds()
+			s.modelStatService.RecordUsage(modelConfig.ID, 0, 0, respTimeMs, true, 0)
+
 			s.emitStreamEvent(messageID, StreamEvent{Type: "error", Error: block.Full})
 		}
 	}

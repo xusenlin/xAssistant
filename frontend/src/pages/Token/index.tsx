@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ModelService, ModelStatService } from "../../../bindings/xAssistant/internal/services/index";
 import { Model } from "../../../bindings/xAssistant/internal/models/index";
+import { toast } from "sonner";
 
 type Range = "today" | "week" | "month" | "all";
 
@@ -133,8 +134,9 @@ export default function Token() {
       setStats((statsData || []).filter((s): s is StatSummary => s !== null && s.model_id !== ""));
       setGlobalStats(globalData ?? null);
       setModels((modelsData || []).filter((m): m is Model => m !== null));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load stats:", error);
+      toast.error("加载统计数据失败: " + (error?.message || error));
     } finally {
       setLoading(false);
       setAnimKey((k) => k + 1);

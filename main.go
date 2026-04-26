@@ -60,7 +60,7 @@ func main() {
 	conversationService := services.NewConversationService(conversationDAO)
 	messageService := services.NewMessageService(messageDAO)
 	messageBlockService := services.NewMessageBlockService(messageBlockDAO)
-	chatService := services.NewChatService(conversationService, messageService, messageBlockService, modelService, agentService)
+	chatService := services.NewChatService(conversationService, messageService, messageBlockService, modelService, agentService, modelStatService)
 
 	if err := optionService.InitDefaults(); err != nil {
 		log.Fatal(err)

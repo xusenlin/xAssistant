@@ -58,7 +58,7 @@ func (d *ModelStatDAO) UpsertByModelAndDate(modelID, date string, inputTokens, o
 func (d *ModelStatDAO) GetAllGroupByModel() ([]*models.ModelStat, error) {
 	var results []*models.ModelStat
 	err := d.db.Model(&models.ModelStat{}).
-		Select("model_id, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens, SUM(conversations) as conversations, SUM(api_errors) as api_errors, SUM(total_resp_time) as total_resp_time, SUM(request_count) as request_count, MIN(created_at) as created_at, MAX(updated_at) as updated_at").
+		Select("model_id, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens, SUM(conversations) as conversations, SUM(api_errors) as api_errors, SUM(total_resp_time) as total_resp_time, SUM(request_count) as request_count").
 		Group("model_id").
 		Order("input_tokens DESC").
 		Find(&results).Error
@@ -68,7 +68,7 @@ func (d *ModelStatDAO) GetAllGroupByModel() ([]*models.ModelStat, error) {
 func (d *ModelStatDAO) GetByDateRange(startDate, endDate string) ([]*models.ModelStat, error) {
 	var results []*models.ModelStat
 	err := d.db.Model(&models.ModelStat{}).
-		Select("model_id, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens, SUM(conversations) as conversations, SUM(api_errors) as api_errors, SUM(total_resp_time) as total_resp_time, SUM(request_count) as request_count, MIN(created_at) as created_at, MAX(updated_at) as updated_at").
+		Select("model_id, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens, SUM(conversations) as conversations, SUM(api_errors) as api_errors, SUM(total_resp_time) as total_resp_time, SUM(request_count) as request_count").
 		Where("date >= ? AND date <= ?", startDate, endDate).
 		Group("model_id").
 		Order("input_tokens DESC").
